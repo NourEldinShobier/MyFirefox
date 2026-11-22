@@ -65,6 +65,7 @@ class DownloadJob(val id: String, val url: String, val site: String, val kind: K
     var processId: String? = null
     var job: Job? = null
     var attempt = 0
+    var firstError = ""
     val active get() = status == Status.QUEUED || status == Status.RUNNING || status == Status.SAVING
 }
 
@@ -196,6 +197,12 @@ class MediaDownloads private constructor(private val app: Context) {
         // YouTube: first try clients that need neither cookies nor a JavaScript challenge (the engine has no JS runtime),
         // then the logged-in cookies with the default clients.
         val youtube = job.site.startsWith("YouTube")
+        if (youtube) {
+            // QuickJS (built in CI) solves YouTube's "n" challenge; the solver script is fetched once from GitHub.
+            val qjs = File(app.applicationInfo.nativeLibraryDir, "libqjs.so")
+            if (qjs.exists()) r.addOption("--js-runtimes", "quickjs:${qjs.absolutePath}")
+            r.addOption("--remote-components", "ejs:github")
+        }
         if (youtube && job.attempt == 0) r.addOption("--extractor-args", "youtube:player_client=android_vr,android")
         else if (cookieFile.exists() && cookieFile.length() > 0) r.addOption("--cookies", cookieFile.absolutePath)
         // Second try for YouTube uses clients that do not need a JavaScript challenge solved.
@@ -235,6 +242,7 @@ class MediaDownloads private constructor(private val app: Context) {
     private fun retryOrFail(job: DownloadJob, dir: File, message: String) {
         if (job.site.startsWith("YouTube") && job.attempt == 0) {
             job.attempt = 1
+            job.firstError = message
             start(job)
         } else {
             dir.deleteRecursively()
@@ -271,7 +279,7 @@ class MediaDownloads private constructor(private val app: Context) {
 
     private fun fail(job: DownloadJob, message: String) {
         job.status = Status.FAILED
-        job.error = message
+        job.error = if (job.firstError.isBlank()) message else "1st try: ${job.firstError.take(160)} | 2nd try: ${message.take(160)}"
         toast("Download failed: $message")
         notifyDone(job)
         pump()
