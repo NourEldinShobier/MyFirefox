@@ -27,7 +27,9 @@ private fun showPicker(activity: Activity, dl: MediaDownloads, pageUrl: String, 
     fun queue(kind: Kind) {
         val picked = entries.filterIndexed { i, _ -> checked[i + 1] }
         picked.forEach { dl.enqueue(it.url, kind, site, quiet = true) }
-        Toast.makeText(activity, "Queued ${picked.size} ${kind.label} downloads ($site)", Toast.LENGTH_LONG).show()
+        // Downloads run one at a time with short random pauses so the account is not flagged; about 30 s per song.
+        val minutes = (picked.size * 30 + 59) / 60
+        Toast.makeText(activity, "Queued ${picked.size} ${kind.label} downloads ($site), about $minutes min with safety pauses", Toast.LENGTH_LONG).show()
     }
 
     AlertDialog.Builder(activity)

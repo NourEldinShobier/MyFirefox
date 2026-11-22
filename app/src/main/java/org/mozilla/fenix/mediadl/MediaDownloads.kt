@@ -112,14 +112,14 @@ class MediaDownloads private constructor(private val app: Context) {
     }
 
     /** Lists every song of a playlist page (yt-dlp pages through lazily loaded lists itself). */
-    fun loadPlaylist(url: String, onDone: (List<PlaylistEntry>) -> Unit, onFail: (String) -> Unit) {
+    fun loadPlaylist(url: String, onDone: (List<PlaylistEntry>) -> Unit, onFail: (String) -> Unit, withLogin: Boolean = false) {
         toast("Reading the playlist…")
         withEngine({
-            runCatching { exportCookies() } // private playlists need the browser's login
+            if (withLogin) runCatching { exportCookies(siteOf(url)) } // only private playlists need the browser's login
             val r = YoutubeDLRequest(url)
                 .addOption("--flat-playlist").addOption("--yes-playlist")
                 .addOption("--print", "%(url)s\t%(title)s")
-            if (cookieFile.exists() && cookieFile.length() > 0) r.addOption("--cookies", cookieFile.absolutePath)
+            if (withLogin && cookieFile.exists() && cookieFile.length() > 0) r.addOption("--cookies", cookieFile.absolutePath)
             YoutubeDL.download(
                 request = r, pId = null,
                 progressCallBack = { _, _, _ -> },
@@ -133,6 +133,8 @@ class MediaDownloads private constructor(private val app: Context) {
                         val err = resp.err.lines().lastOrNull { it.isNotBlank() } ?: "No songs found"
                         when {
                             list.isNotEmpty() -> onDone(list)
+                            !withLogin && Regex("private|sign in|login|cookies", RegexOption.IGNORE_CASE).containsMatchIn(err) ->
+                                loadPlaylist(url, onDone, onFail, withLogin = true)
                             Regex("private|sign in|login|cookies", RegexOption.IGNORE_CASE).containsMatchIn(err) ->
                                 onFail("this playlist is private. Sign in to ${siteOf(url)} in this browser, then try again")
                             else -> onFail(err)
@@ -170,13 +172,42 @@ class MediaDownloads private constructor(private val app: Context) {
 
     // ---- running ------------------------------------------------------------------------
 
+    // Account safety: gaps between jobs, a pause after rate-limit errors, and cookies only when needed.
+    private var nextStartAt = 0L
+    private var pausedUntil = 0L
+    private var pumpScheduled = false
+    private val rnd = java.util.Random()
+
+    /** Random pause before the next job so a long queue never looks like a bot hammering the site. */
+    private fun gapMs(site: String): Long {
+        val (lo, hi) = when {
+            site.startsWith("YouTube") -> 8 to 25
+            site == "Instagram" -> 30 to 60
+            else -> 3 to 8
+        }
+        return (lo + rnd.nextInt(hi - lo + 1)) * 1000L
+    }
+
     private fun pump() {
         sync()
+        if (running == null && queued == 0) cookieFile.delete() // no login data stays on disk while idle
         if (running != null) return
         val next = jobs.lastOrNull { it.status == Status.QUEUED } ?: return
+        val wait = maxOf(nextStartAt, pausedUntil) - System.currentTimeMillis()
+        if (wait > 0) {
+            if (!pumpScheduled) { pumpScheduled = true; main.postDelayed({ pumpScheduled = false; pump() }, wait) }
+            return
+        }
         next.status = Status.RUNNING
         sync()
         ensureReady(next)
+    }
+
+    private val rateLimited = Regex("429|too many requests|rate.?limit|try again later|not a bot|confirm you.re not", RegexOption.IGNORE_CASE)
+
+    /** Called when a job ends for any reason: schedules the gap before the next job. */
+    private fun jobEnded(job: DownloadJob) {
+        nextStartAt = System.currentTimeMillis() + gapMs(job.site)
     }
 
     private fun ensureReady(job: DownloadJob) =
@@ -208,15 +239,20 @@ class MediaDownloads private constructor(private val app: Context) {
      * logged-in browser (YouTube otherwise answers "confirm you're not a bot").
      * shortcut: reads Gecko's cookies.sqlite on the main thread, upgrade to a background thread if it gets slow.
      */
-    private fun exportCookies() {
+    private fun exportCookies(site: String) {
+        val domains = when {
+            site.startsWith("YouTube") -> listOf("youtube.com")
+            site == "Instagram" -> listOf("instagram.com")
+            else -> return // SoundCloud and other sites never get your login
+        }
         val profile = File(app.filesDir, "mozilla").listFiles()
             ?.firstOrNull { File(it, "cookies.sqlite").exists() } ?: return
         val tmp = File(app.cacheDir, "ckdb").apply { deleteRecursively(); mkdirs() }
+        try {
         listOf("cookies.sqlite", "cookies.sqlite-wal", "cookies.sqlite-shm").forEach { n ->
             File(profile, n).takeIf { it.exists() }?.copyTo(File(tmp, n), overwrite = true)
         }
-        val sites = listOf("youtube.com", "google.com", "soundcloud.com", "instagram.com")
-        val where = sites.joinToString(" OR ") { "host LIKE '%$it'" }
+        val where = domains.joinToString(" OR ") { "host = '$it' OR host LIKE '%.$it'" }
         val db = android.database.sqlite.SQLiteDatabase.openDatabase(
             File(tmp, "cookies.sqlite").absolutePath, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE,
         )
@@ -232,16 +268,19 @@ class MediaDownloads private constructor(private val app: Context) {
             }
             cookieFile.writeText(out.toString())
         }
-        tmp.deleteRecursively()
+        } finally {
+            tmp.deleteRecursively() // never leave a copy of the whole cookie database behind
+        }
     }
 
     private fun start(job: DownloadJob) {
-        runCatching { exportCookies() }
-        val dir =File(app.cacheDir, "dl/${job.id}").apply { deleteRecursively(); mkdirs() }
+        val dir = File(app.cacheDir, "dl/${job.id}").apply { deleteRecursively(); mkdirs() }
         val r = YoutubeDLRequest(job.url)
             .addOption("--no-playlist")
             .addOption("--no-mtime")
             .addOption("--embed-metadata")
+            .addOption("--retries", "3").addOption("--socket-timeout", "20")
+            .addOption("--sleep-requests", if (job.site == "Instagram") "3" else "1.5")
             .addOption("-o", File(dir, "%(title).150B.%(ext)s").absolutePath)
         when (job.kind) {
             Kind.MP3 -> r.addOption("-f", "bestaudio/best").addOption("-x").addOption("--audio-format", "mp3")
@@ -258,8 +297,11 @@ class MediaDownloads private constructor(private val app: Context) {
             r.addOption("--remote-components", "ejs:github")
         }
         if (youtube && job.attempt == 0) r.addOption("--extractor-args", "youtube:player_client=android_vr,android")
-        else if (cookieFile.exists() && cookieFile.length() > 0) r.addOption("--cookies", cookieFile.absolutePath)
-        // Second try for YouTube uses clients that do not need a JavaScript challenge solved.
+        else if (youtube || job.site == "Instagram") {
+            // Cookies only where the site needs a login: Instagram always, YouTube only on the retry.
+            runCatching { exportCookies(job.site) }
+            if (cookieFile.exists() && cookieFile.length() > 0) r.addOption("--cookies", cookieFile.absolutePath)
+        }
 
         job.job = YoutubeDL.download(
             request = r,
@@ -294,10 +336,18 @@ class MediaDownloads private constructor(private val app: Context) {
     }
 
     private fun retryOrFail(job: DownloadJob, dir: File, message: String) {
-        if (job.site.startsWith("YouTube") && job.attempt == 0) {
+        if (rateLimited.containsMatchIn(message) && (job.attempt > 0 || !job.site.startsWith("YouTube") ||
+                Regex("429|too many|rate.?limit|try again later", RegexOption.IGNORE_CASE).containsMatchIn(message))
+        ) {
+            // The site is pushing back: stop everything for 45 minutes instead of retrying with the account.
+            pausedUntil = System.currentTimeMillis() + 45 * 60_000L
+            toast("${job.site} is limiting requests. Downloads paused for 45 minutes to protect your account.")
+            dir.deleteRecursively()
+            fail(job, message)
+        } else if (job.site.startsWith("YouTube") && job.attempt == 0) {
             job.attempt = 1
             job.firstError = message
-            start(job)
+            main.postDelayed({ if (job.status == Status.RUNNING) start(job) }, 5000L)
         } else {
             dir.deleteRecursively()
             fail(job, message)
@@ -325,6 +375,7 @@ class MediaDownloads private constructor(private val app: Context) {
                     job.status = Status.DONE; job.percent = 100f
                     toast("Saved ${media.nameWithoutExtension} to $where")
                     notifyDone(job)
+                    jobEnded(job)
                 }.onFailure { fail(job, "Could not save the file: ${it.message}") }
                 pump()
             }
@@ -336,6 +387,7 @@ class MediaDownloads private constructor(private val app: Context) {
         job.error = if (job.firstError.isBlank()) message else "1st try: ${job.firstError.take(160)} | 2nd try: ${message.take(160)}"
         toast("Download failed: $message")
         notifyDone(job)
+        jobEnded(job)
         pump()
     }
 
