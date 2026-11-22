@@ -285,6 +285,11 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler, SystemIns
     }
 
     private fun initReaderModeUpdates(context: Context, view: View) {
+        org.mozilla.fenix.mediadl.PlaylistBridge.start(
+            context.components.core.engine,
+            context.components.core.store,
+            requireActivity(),
+        )
         readerViewFeature.set(
             feature =
                 context.components.strictMode.allowViolation(StrictMode::allowThreadDiskReads) {

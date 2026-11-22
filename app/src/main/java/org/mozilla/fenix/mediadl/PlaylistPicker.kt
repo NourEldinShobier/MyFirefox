@@ -18,7 +18,7 @@ fun pickPlaylistSongs(activity: Activity, pageUrl: String) {
     )
 }
 
-private fun showPicker(activity: Activity, dl: MediaDownloads, pageUrl: String, entries: List<PlaylistEntry>) {
+internal fun showPicker(activity: Activity, dl: MediaDownloads, pageUrl: String, entries: List<PlaylistEntry>) {
     if (activity.isFinishing || activity.isDestroyed) return
     val labels = arrayOf("Select all") + entries.map { it.title }.toTypedArray()
     val checked = BooleanArray(labels.size)
@@ -33,7 +33,7 @@ private fun showPicker(activity: Activity, dl: MediaDownloads, pageUrl: String, 
     }
 
     AlertDialog.Builder(activity)
-        .setTitle("${entries.size} songs")
+        .setTitle("${entries.size} found (scroll the list to load more)")
         .setMultiChoiceItems(labels, checked) { dialog, which, isChecked ->
             checked[which] = isChecked
             if (which == 0) {
