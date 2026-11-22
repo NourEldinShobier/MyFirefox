@@ -2,9 +2,18 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      optimize:
+        description: 'Run R8 shrinking (slower build, smaller faster app; use for measuring)'
+        type: boolean
+        default: false
   push:
     branches:
       - iceraven
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   release-automation:
@@ -48,7 +57,10 @@ jobs:
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs="-XX:MaxMetaspaceSize=4g -Xms1g -Xmx7g -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/dev/stderr"
         run: |
-          /usr/bin/time -v ./gradlew app:assembleForkRelease -PversionName=${{ env.VERSION_NAME }} --stacktrace --no-daemon
+          FLAGS="--build-cache --parallel"
+          # shortcut: skipping R8 gives a bigger, slower app; set the optimize input for real measurements
+          if [ "${{ inputs.optimize }}" != "true" ]; then FLAGS="$FLAGS -PdisableOptimization"; fi
+          /usr/bin/time -v ./gradlew app:assembleForkRelease -PversionName=${{ env.VERSION_NAME }} $FLAGS --stacktrace --no-daemon
 
       - name: Debug
         run: |
