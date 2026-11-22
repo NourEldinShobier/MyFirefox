@@ -179,6 +179,7 @@ fun MainMenu(
     extensionSubmenu: @Composable () -> Unit,
     mediaDownloadUrl: String? = null,
     onMediaDownloadClick: (audio: Boolean) -> Unit = {},
+    onPlaylistDownloadClick: () -> Unit = {},
 ) {
     MenuFrame(
         contentModifier =
@@ -311,16 +312,25 @@ fun MainMenu(
 
         if (accessPoint == MenuAccessPoint.Browser && mediaDownloadUrl != null) {
             MenuGroup {
-                MenuItem(
-                    label = "Download audio (MP3)",
-                    beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
-                    onClick = { onMediaDownloadClick(true) },
-                )
-                MenuItem(
-                    label = "Download video (MP4)",
-                    beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
-                    onClick = { onMediaDownloadClick(false) },
-                )
+                if (org.mozilla.fenix.mediadl.isDownloadable(mediaDownloadUrl)) {
+                    MenuItem(
+                        label = "Download audio (MP3)",
+                        beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
+                        onClick = { onMediaDownloadClick(true) },
+                    )
+                    MenuItem(
+                        label = "Download video (MP4)",
+                        beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
+                        onClick = { onMediaDownloadClick(false) },
+                    )
+                }
+                if (org.mozilla.fenix.mediadl.isPlaylist(mediaDownloadUrl)) {
+                    MenuItem(
+                        label = "Download playlist…",
+                        beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
+                        onClick = onPlaylistDownloadClick,
+                    )
+                }
             }
         }
 

@@ -621,7 +621,13 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                     menuStore.dispatch(MenuAction.Navigate.Downloads)
                                 },
                                 mediaDownloadUrl = browserStore.state.selectedTab?.content?.url
-                                    ?.takeIf { isDownloadable(it) },
+                                    ?.takeIf { isDownloadable(it) || org.mozilla.fenix.mediadl.isPlaylist(it) },
+                                onPlaylistDownloadClick = {
+                                    browserStore.state.selectedTab?.content?.url?.let {
+                                        org.mozilla.fenix.mediadl.pickPlaylistSongs(requireActivity(), it)
+                                    }
+                                    dismiss()
+                                },
                                 onMediaDownloadClick = { audio ->
                                     browserStore.state.selectedTab?.content?.url?.let {
                                         MediaDownloads.get(requireContext())

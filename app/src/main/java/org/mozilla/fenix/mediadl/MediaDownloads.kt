@@ -56,6 +56,23 @@ fun isDownloadable(url: String): Boolean {
     }
 }
 
+/** True for playlist, album and set pages whose songs can be picked one by one. */
+fun isPlaylist(url: String): Boolean {
+    val u = Uri.parse(url)
+    val host = u.host?.lowercase() ?: return false
+    val path = u.path ?: ""
+    val list = u.getQueryParameter("list").orEmpty()
+    return when {
+        host.endsWith("youtube.com") ->
+            (path == "/playlist" && list.isNotEmpty()) ||
+                (path.startsWith("/watch") && list.isNotEmpty() && !list.startsWith("RD") && !list.startsWith("UL"))
+        host.endsWith("soundcloud.com") -> "/sets/" in path
+        else -> false
+    }
+}
+
+class PlaylistEntry(val url: String, val title: String)
+
 class DownloadJob(val id: String, val url: String, val site: String, val kind: Kind) {
     var title = ""
     var status = Status.QUEUED
@@ -86,12 +103,38 @@ class MediaDownloads private constructor(private val app: Context) {
 
     private fun toast(message: String) = main.post { Toast.makeText(app, message, Toast.LENGTH_LONG).show() }
 
-    fun enqueue(url: String, kind: Kind) {
-        if (jobs.any { it.url == url && it.kind == kind && it.active }) { toast("Already downloading this"); return }
-        val job = DownloadJob("d${System.currentTimeMillis()}_${counter++}", url, siteOf(url), kind)
+    fun enqueue(url: String, kind: Kind, site: String = siteOf(url), quiet: Boolean = false) {
+        if (jobs.any { it.url == url && it.kind == kind && it.active }) { if (!quiet) toast("Already downloading this"); return }
+        val job = DownloadJob("d${System.currentTimeMillis()}_${counter++}", url, site, kind)
         jobs.add(0, job)
-        toast("Download started (${job.site}, ${kind.label})")
+        if (!quiet) toast("Download started (${job.site}, ${kind.label})")
         pump()
+    }
+
+    /** Lists every song of a playlist page (yt-dlp pages through lazily loaded lists itself). */
+    fun loadPlaylist(url: String, onDone: (List<PlaylistEntry>) -> Unit, onFail: (String) -> Unit) {
+        toast("Reading the playlist…")
+        withEngine({
+            val r = YoutubeDLRequest(url)
+                .addOption("--flat-playlist").addOption("--yes-playlist")
+                .addOption("--print", "%(url)s\t%(title)s")
+            if (cookieFile.exists() && cookieFile.length() > 0) r.addOption("--cookies", cookieFile.absolutePath)
+            YoutubeDL.download(
+                request = r, pId = null,
+                progressCallBack = { _, _, _ -> },
+                onStartProcess = { },
+                onEndProcess = { resp ->
+                    val list = resp.out.lines().mapNotNull { line ->
+                        val (u, t) = line.split('\t', limit = 2).let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
+                        if (u.startsWith("http")) PlaylistEntry(u, t.ifBlank { u }) else null
+                    }
+                    main.post {
+                        if (list.isEmpty()) onFail(resp.err.lines().lastOrNull { it.isNotBlank() } ?: "No songs found") else onDone(list)
+                    }
+                },
+                onError = { e -> main.post { onFail(e.message ?: "could not read the playlist") } },
+            )
+        }, { onFail(it) })
     }
 
     fun cancel(job: DownloadJob) {
@@ -129,20 +172,24 @@ class MediaDownloads private constructor(private val app: Context) {
         ensureReady(next)
     }
 
-    private fun ensureReady(job: DownloadJob) {
+    private fun ensureReady(job: DownloadJob) =
+        withEngine({ start(job) }, { fail(job, "Download engine failed to start: $it") })
+
+    /** Runs [ready] once yt-dlp is unpacked and initialised, or [failed] with the reason. */
+    private fun withEngine(ready: () -> Unit, failed: (String) -> Unit) {
         when (initState) {
-            2 -> start(job)
-            -1 -> fail(job, "Download engine failed to start: $initError")
-            1 -> main.postDelayed({ ensureReady(job) }, 500)
+            2 -> ready()
+            -1 -> failed(initError)
+            1 -> main.postDelayed({ withEngine(ready, failed) }, 500)
             else -> {
                 initState = 1
                 YoutubeDL.init(
                     app, true, false,
-                    { _ -> initState = 2; main.post { start(job) } },
+                    { _ -> initState = 2; main.post { ready() } },
                     { e ->
                         initState = -1
                         initError = e.message ?: "unknown"
-                        main.post { fail(job, "Download engine failed to start: $initError") }
+                        main.post { failed(initError) }
                     },
                 )
             }
