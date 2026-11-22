@@ -326,7 +326,7 @@ fun MainMenu(
                 }
                 if (org.mozilla.fenix.mediadl.isPlaylist(mediaDownloadUrl)) {
                     MenuItem(
-                        label = "Download playlist…",
+                        label = "Download playlist",
                         beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
                         onClick = onPlaylistDownloadClick,
                     )

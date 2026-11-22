@@ -774,6 +774,10 @@
             android:foregroundServiceType="mediaPlayback"
             android:exported="false" />
 
+        <activity
+            android:name=".mediadl.PlaylistPickerActivity"
+            android:exported="false"
+            android:theme="@style/NormalTheme" />
         <service android:name=".mediadl.MediaDownloadService"
             android:foregroundServiceType="dataSync"
             android:exported="false" />

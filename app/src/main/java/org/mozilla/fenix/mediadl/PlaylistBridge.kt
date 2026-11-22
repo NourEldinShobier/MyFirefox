@@ -6,6 +6,7 @@ package org.mozilla.fenix.mediadl
 
 import android.app.Activity
 import android.os.Handler
+import android.util.Log
 import android.os.Looper
 import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
@@ -45,24 +46,34 @@ object PlaylistBridge {
         if (started) return
         started = true
         controller.install(engine, onSuccess = {
+            Log.i("PlaylistBridge", "extension installed")
             scope.launch {
                 store.flow()
                     .map { it.selectedTab?.engineState?.engineSession }
                     .filterNotNull()
                     .distinctUntilChanged()
-                    .collect { controller.registerContentMessageHandler(it, PageMessages(), PORT) }
+                    .collect {
+                        Log.i("PlaylistBridge", "registering page handler")
+                        controller.registerContentMessageHandler(it, PageMessages(), PORT)
+                    }
             }
-        })
+        }, onError = { Log.w("PlaylistBridge", "extension install failed", it) })
     }
 
     /** Asks the page for its loaded videos. False when the page is not connected (the caller then falls back). */
     fun request(engineSession: EngineSession?): Boolean {
-        if (engineSession == null || !controller.portConnected(engineSession, PORT)) return false
+        val connected = engineSession != null && controller.portConnected(engineSession, PORT)
+        Log.i("PlaylistBridge", "page connected: $connected")
+        if (engineSession == null || !connected) return false
         controller.sendContentMessage(JSONObject().put("action", "collect"), engineSession, PORT)
         return true
     }
 
     private class PageMessages : MessageHandler {
+        override fun onPortConnected(port: Port) {
+            Log.i("PlaylistBridge", "page port connected")
+        }
+
         override fun onPortMessage(message: Any, port: Port) {
             val json = message as? JSONObject ?: return
             if (json.optString("action") != "items") return
@@ -76,7 +87,7 @@ object PlaylistBridge {
                 if (entries.isEmpty()) {
                     Toast.makeText(act, "No videos found. Scroll the list so they load, then try again.", Toast.LENGTH_LONG).show()
                 } else {
-                    showPicker(act, MediaDownloads.get(act), page, entries)
+                    showPicker(act, page, entries)
                 }
             }
         }

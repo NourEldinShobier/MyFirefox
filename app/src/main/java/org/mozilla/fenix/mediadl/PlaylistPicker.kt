@@ -5,44 +5,25 @@
 package org.mozilla.fenix.mediadl
 
 import android.app.Activity
+import android.content.Intent
+import android.util.Log
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 
-/** Reads the playlist on [pageUrl] and lets the user tick the songs to download. */
+/** Reads the whole playlist with yt-dlp and opens the picker page. Used when the page can't list its own videos. */
 fun pickPlaylistSongs(activity: Activity, pageUrl: String) {
-    val dl = MediaDownloads.get(activity)
-    dl.loadPlaylist(
+    MediaDownloads.get(activity).loadPlaylist(
         pageUrl,
-        onDone = { entries -> showPicker(activity, dl, pageUrl, entries) },
-        onFail = { Toast.makeText(activity, "Could not read the playlist: $it", Toast.LENGTH_LONG).show() },
+        onDone = { entries -> showPicker(activity, pageUrl, entries) },
+        onFail = {
+            Log.w("PlaylistPicker", "playlist read failed: $it")
+            Toast.makeText(activity, "Could not read the playlist: $it", Toast.LENGTH_LONG).show()
+        },
     )
 }
 
-internal fun showPicker(activity: Activity, dl: MediaDownloads, pageUrl: String, entries: List<PlaylistEntry>) {
+/** Opens the in-app page that lists [entries] with thumbnails. */
+fun showPicker(activity: Activity, pageUrl: String, entries: List<PlaylistEntry>) {
     if (activity.isFinishing || activity.isDestroyed) return
-    val labels = arrayOf("Select all") + entries.map { it.title }.toTypedArray()
-    val checked = BooleanArray(labels.size)
-    val site = siteOf(pageUrl)
-
-    fun queue(kind: Kind) {
-        val picked = entries.filterIndexed { i, _ -> checked[i + 1] }
-        picked.forEach { dl.enqueue(it.url, kind, site, quiet = true) }
-        // Downloads run one at a time with short random pauses so the account is not flagged; about 30 s per song.
-        val minutes = (picked.size * 30 + 59) / 60
-        Toast.makeText(activity, "Queued ${picked.size} ${kind.label} downloads ($site), about $minutes min with safety pauses", Toast.LENGTH_LONG).show()
-    }
-
-    AlertDialog.Builder(activity)
-        .setTitle("${entries.size} found (scroll the list to load more)")
-        .setMultiChoiceItems(labels, checked) { dialog, which, isChecked ->
-            checked[which] = isChecked
-            if (which == 0) {
-                val list = (dialog as AlertDialog).listView
-                for (i in 1 until labels.size) { checked[i] = isChecked; list.setItemChecked(i, isChecked) }
-            }
-        }
-        .setPositiveButton("Audio (MP3)") { _, _ -> queue(Kind.MP3) }
-        .setNeutralButton("Video (MP4)") { _, _ -> queue(Kind.MP4) }
-        .setNegativeButton("Cancel", null)
-        .show()
+    PlaylistSession.current = PlaylistSession.Data(pageUrl, entries)
+    activity.startActivity(Intent(activity, PlaylistPickerActivity::class.java))
 }
