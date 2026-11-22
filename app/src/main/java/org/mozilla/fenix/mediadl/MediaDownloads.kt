@@ -148,8 +148,41 @@ class MediaDownloads private constructor(private val app: Context) {
         }
     }
 
+    /**
+     * Writes the browser's own cookies for the supported sites to [cookieFile] so yt-dlp is treated as the
+     * logged-in browser (YouTube otherwise answers "confirm you're not a bot").
+     * shortcut: reads Gecko's cookies.sqlite on the main thread, upgrade to a background thread if it gets slow.
+     */
+    private fun exportCookies() {
+        val profile = File(app.filesDir, "mozilla").listFiles()
+            ?.firstOrNull { File(it, "cookies.sqlite").exists() } ?: return
+        val tmp = File(app.cacheDir, "ckdb").apply { deleteRecursively(); mkdirs() }
+        listOf("cookies.sqlite", "cookies.sqlite-wal", "cookies.sqlite-shm").forEach { n ->
+            File(profile, n).takeIf { it.exists() }?.copyTo(File(tmp, n), overwrite = true)
+        }
+        val sites = listOf("youtube.com", "google.com", "soundcloud.com", "instagram.com")
+        val where = sites.joinToString(" OR ") { "host LIKE '%$it'" }
+        val db = android.database.sqlite.SQLiteDatabase.openDatabase(
+            File(tmp, "cookies.sqlite").absolutePath, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE,
+        )
+        db.use {
+            val out = StringBuilder("# Netscape HTTP Cookie File\n")
+            it.rawQuery("SELECT host, path, isSecure, expiry, name, value FROM moz_cookies WHERE $where", null).use { c ->
+                while (c.moveToNext()) {
+                    val host = c.getString(0)
+                    out.append(host).append('\t').append(if (host.startsWith(".")) "TRUE" else "FALSE").append('\t')
+                        .append(c.getString(1)).append('\t').append(if (c.getInt(2) != 0) "TRUE" else "FALSE").append('\t')
+                        .append(c.getLong(3)).append('\t').append(c.getString(4)).append('\t').append(c.getString(5)).append('\n')
+                }
+            }
+            cookieFile.writeText(out.toString())
+        }
+        tmp.deleteRecursively()
+    }
+
     private fun start(job: DownloadJob) {
-        val dir = File(app.cacheDir, "dl/${job.id}").apply { deleteRecursively(); mkdirs() }
+        runCatching { exportCookies() }
+        val dir =File(app.cacheDir, "dl/${job.id}").apply { deleteRecursively(); mkdirs() }
         val r = YoutubeDLRequest(job.url)
             .addOption("--no-playlist")
             .addOption("--no-mtime")
