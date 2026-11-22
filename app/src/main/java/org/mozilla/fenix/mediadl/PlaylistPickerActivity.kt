@@ -24,7 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -38,7 +38,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -84,14 +86,16 @@ private object Thumbs {
 @Composable
 private fun PickerScreen(data: PlaylistSession.Data, onClose: () -> Unit) {
     val context = LocalContext.current
-    val entries = data.entries
+    var entries by remember { mutableStateOf(data.entries) }
+    var loadingAll by remember { mutableStateOf(false) }
+    var loadedAll by remember { mutableStateOf(false) }
     val site = siteOf(data.pageUrl)
-    val checked = remember { mutableStateListOf<Boolean>().apply { repeat(entries.size) { add(false) } } }
-    val count = checked.count { it }
+    val checked = remember { mutableStateMapOf<String, Boolean>() }
+    val count = entries.count { checked[it.url] == true }
 
     fun queue(kind: Kind) {
         val dl = MediaDownloads.get(context)
-        val picked = entries.filterIndexed { i, _ -> checked[i] }
+        val picked = entries.filter { checked[it.url] == true }
         picked.forEach { dl.enqueue(it.url, kind, site, quiet = true) }
         // One at a time with random pauses so the account is not flagged: about 30 s per song.
         val minutes = (picked.size * 30 + 59) / 60
@@ -120,19 +124,36 @@ private fun PickerScreen(data: PlaylistSession.Data, onClose: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                TextButton(onClick = { val all = count < entries.size; for (i in entries.indices) checked[i] = all }) {
+                if (!loadedAll) {
+                    // The page only lists what you have scrolled to; this asks YouTube for the whole playlist once.
+                    TextButton(
+                        enabled = !loadingAll,
+                        onClick = {
+                            loadingAll = true
+                            MediaDownloads.get(context).loadPlaylist(
+                                data.pageUrl,
+                                onDone = { list -> entries = list; loadedAll = true; loadingAll = false },
+                                onFail = {
+                                    loadingAll = false
+                                    Toast.makeText(context, "Could not load the full list: $it", Toast.LENGTH_LONG).show()
+                                },
+                            )
+                        },
+                    ) { Text(if (loadingAll) "Loading…" else "Load all") }
+                }
+                TextButton(onClick = { val all = count < entries.size; for (e in entries) checked[e.url] = all }) {
                     Text(if (count == entries.size) "Clear" else "Select all")
                 }
             }
             HorizontalDivider()
             LazyColumn(Modifier.weight(1f)) {
-                itemsIndexed(entries) { i, e ->
+                items(entries, key = { it.url }) { e ->
                     Row(
-                        Modifier.fillMaxWidth().clickable { checked[i] = !checked[i] }
+                        Modifier.fillMaxWidth().clickable { checked[e.url] = checked[e.url] != true }
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Checkbox(checked = checked[i], onCheckedChange = { checked[i] = it })
+                        Checkbox(checked = checked[e.url] == true, onCheckedChange = { checked[e.url] = it })
                         Thumbnail(e.url)
                         Text(
                             e.title,

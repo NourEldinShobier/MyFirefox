@@ -27,11 +27,13 @@ function clean(text) {
 }
 
 function titleFor(anchor) {
-  const direct = clean(anchor.getAttribute("title") || anchor.getAttribute("aria-label") || anchor.textContent);
-  if (direct.length > 2 && !/^\d+:\d+(:\d+)?$/.test(direct)) return direct;
+  // The visible heading is the clean title; the link label also carries channel, views and duration.
   const box = anchor.closest("ytm-playlist-video-renderer, ytm-compact-video-renderer, ytm-video-with-context-renderer, ytmusic-responsive-list-item-renderer, ytd-playlist-video-renderer, li, article");
   const head = box && box.querySelector("h3, .media-item-headline, [role=heading], .title, yt-formatted-string");
-  return clean(head && head.textContent);
+  const fromHead = clean(head && head.textContent);
+  if (fromHead.length > 2) return fromHead;
+  const label = clean(anchor.getAttribute("title") || anchor.getAttribute("aria-label") || anchor.textContent);
+  return label.replace(/\s+by\s+.+?\s+[\d,.]+[KMB]?\s+views.*$/i, "");
 }
 
 function collect() {
