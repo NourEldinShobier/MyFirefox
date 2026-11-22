@@ -115,6 +115,7 @@ class MediaDownloads private constructor(private val app: Context) {
     fun loadPlaylist(url: String, onDone: (List<PlaylistEntry>) -> Unit, onFail: (String) -> Unit) {
         toast("Reading the playlist…")
         withEngine({
+            runCatching { exportCookies() } // private playlists need the browser's login
             val r = YoutubeDLRequest(url)
                 .addOption("--flat-playlist").addOption("--yes-playlist")
                 .addOption("--print", "%(url)s\t%(title)s")
@@ -129,7 +130,13 @@ class MediaDownloads private constructor(private val app: Context) {
                         if (u.startsWith("http")) PlaylistEntry(u, t.ifBlank { u }) else null
                     }
                     main.post {
-                        if (list.isEmpty()) onFail(resp.err.lines().lastOrNull { it.isNotBlank() } ?: "No songs found") else onDone(list)
+                        val err = resp.err.lines().lastOrNull { it.isNotBlank() } ?: "No songs found"
+                        when {
+                            list.isNotEmpty() -> onDone(list)
+                            Regex("private|sign in|login|cookies", RegexOption.IGNORE_CASE).containsMatchIn(err) ->
+                                onFail("this playlist is private. Sign in to ${siteOf(url)} in this browser, then try again")
+                            else -> onFail(err)
+                        }
                     }
                 },
                 onError = { e -> main.post { onFail(e.message ?: "could not read the playlist") } },
