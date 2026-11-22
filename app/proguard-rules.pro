@@ -28,3 +28,8 @@
 
 # Keep code generated from Glean Metrics
 -keep class org.mozilla.fenix.GleanMetrics.** {  *; }
+
+# Built-in media downloader (yt-dlp runtime)
+-keep class com.farimarwat.** { *; }
+-keep class com.yausername.** { *; }
+-dontwarn com.farimarwat.**

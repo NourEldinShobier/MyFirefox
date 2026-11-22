@@ -177,6 +177,8 @@ fun MainMenu(
     extensionsMenuItemDescription: String?,
     moreSettingsSubmenu: @Composable () -> Unit,
     extensionSubmenu: @Composable () -> Unit,
+    mediaDownloadUrl: String? = null,
+    onMediaDownloadClick: (audio: Boolean) -> Unit = {},
 ) {
     MenuFrame(
         contentModifier =
@@ -305,6 +307,21 @@ fun MainMenu(
                 moreSettingsSubmenu = moreSettingsSubmenu,
                 extensionSubmenu = extensionSubmenu,
             )
+        }
+
+        if (accessPoint == MenuAccessPoint.Browser && mediaDownloadUrl != null) {
+            MenuGroup {
+                MenuItem(
+                    label = "Download audio (MP3)",
+                    beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
+                    onClick = { onMediaDownloadClick(true) },
+                )
+                MenuItem(
+                    label = "Download video (MP4)",
+                    beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
+                    onClick = { onMediaDownloadClick(false) },
+                )
+            }
         }
 
         LibraryMenuGroup(

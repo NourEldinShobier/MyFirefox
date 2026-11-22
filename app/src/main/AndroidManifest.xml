@@ -774,6 +774,10 @@
             android:foregroundServiceType="mediaPlayback"
             android:exported="false" />
 
+        <service android:name=".mediadl.MediaDownloadService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
         <service
             android:name=".customtabs.CustomTabsService"
             android:exported="true"

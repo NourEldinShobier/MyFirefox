@@ -107,6 +107,9 @@ import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.openSetDefaultBrowserOption
 import org.mozilla.fenix.ext.openToBrowser
 import org.mozilla.fenix.ext.requireComponents
+import org.mozilla.fenix.mediadl.Kind
+import org.mozilla.fenix.mediadl.MediaDownloads
+import org.mozilla.fenix.mediadl.isDownloadable
 import org.mozilla.fenix.ext.runIfFragmentIsAttached
 import org.mozilla.fenix.ipprotection.ui.IPProtectionSnackbarBinding
 import org.mozilla.fenix.nimbus.FxNimbus
@@ -616,6 +619,15 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                 },
                                 onDownloadsMenuClick = {
                                     menuStore.dispatch(MenuAction.Navigate.Downloads)
+                                },
+                                mediaDownloadUrl = browserStore.state.selectedTab?.content?.url
+                                    ?.takeIf { isDownloadable(it) },
+                                onMediaDownloadClick = { audio ->
+                                    browserStore.state.selectedTab?.content?.url?.let {
+                                        MediaDownloads.get(requireContext())
+                                            .enqueue(it, if (audio) Kind.MP3 else Kind.MP4)
+                                    }
+                                    dismiss()
                                 },
                                 onPasswordsMenuClick = {
                                     menuStore.dispatch(MenuAction.Navigate.Passwords)
