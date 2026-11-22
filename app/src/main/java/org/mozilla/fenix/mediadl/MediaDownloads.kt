@@ -193,9 +193,12 @@ class MediaDownloads private constructor(private val app: Context) {
                 .addOption("--audio-quality", "0").addOption("--embed-thumbnail").addOption("--convert-thumbnails", "jpg")
             Kind.MP4 -> r.addOption("-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b").addOption("--merge-output-format", "mp4")
         }
-        if (cookieFile.exists() && cookieFile.length() > 0) r.addOption("--cookies", cookieFile.absolutePath)
+        // YouTube: first try clients that need neither cookies nor a JavaScript challenge (the engine has no JS runtime),
+        // then the logged-in cookies with the default clients.
+        val youtube = job.site.startsWith("YouTube")
+        if (youtube && job.attempt == 0) r.addOption("--extractor-args", "youtube:player_client=android_vr,android")
+        else if (cookieFile.exists() && cookieFile.length() > 0) r.addOption("--cookies", cookieFile.absolutePath)
         // Second try for YouTube uses clients that do not need a JavaScript challenge solved.
-        if (job.site.startsWith("YouTube") && job.attempt > 0) r.addOption("--extractor-args", "youtube:player_client=tv,android_vr")
 
         job.job = YoutubeDL.download(
             request = r,
