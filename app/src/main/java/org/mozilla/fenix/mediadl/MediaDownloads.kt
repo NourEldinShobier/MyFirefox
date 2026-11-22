@@ -133,7 +133,7 @@ class MediaDownloads private constructor(private val app: Context) {
                         val err = resp.err.lines().lastOrNull { it.isNotBlank() } ?: "No songs found"
                         when {
                             list.isNotEmpty() -> onDone(list)
-                            !withLogin && Regex("private|sign in|login|cookies", RegexOption.IGNORE_CASE).containsMatchIn(err) ->
+                            !withLogin && Regex("private|sign in|login|cookies|does not exist|unavailable", RegexOption.IGNORE_CASE).containsMatchIn(err) ->
                                 loadPlaylist(url, onDone, onFail, withLogin = true)
                             Regex("private|sign in|login|cookies", RegexOption.IGNORE_CASE).containsMatchIn(err) ->
                                 onFail("this playlist is private. Sign in to ${siteOf(url)} in this browser, then try again")
