@@ -10,6 +10,8 @@ function connect() {
     port.onMessage.addListener(msg => {
       if (msg && msg.action === "collect") {
         port.postMessage({ action: "items", page: location.href, items: collect() });
+      } else if (msg && msg.action === "collectAll") {
+        scrollAll();
       }
     });
     port.onDisconnect.addListener(() => {
@@ -59,6 +61,26 @@ function collect() {
     });
   }
   return Array.from(found, ([url, title]) => ({ url, title: title || url }));
+}
+
+// Scrolls like a person would so the page loads the rest of the list itself (works for private playlists,
+// no extra request outside the page). Stops after 4 rounds with nothing new, or after 150 rounds.
+let scrolling = false;
+async function scrollAll() {
+  if (scrolling) return;
+  scrolling = true;
+  const all = new Map();
+  let last = -1, still = 0;
+  for (let i = 0; i < 150 && still < 4; i++) {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    await new Promise(r => setTimeout(r, 1500));
+    collect().forEach(e => { if (!all.has(e.url) || e.title.length > all.get(e.url).title.length) all.set(e.url, e); });
+    if (port) port.postMessage({ action: "progress", count: all.size });
+    if (all.size === last) still++; else { still = 0; last = all.size; }
+  }
+  scrolling = false;
+  window.scrollTo(0, 0);
+  if (port) port.postMessage({ action: "items", page: location.href, items: Array.from(all.values()) });
 }
 
 connect();

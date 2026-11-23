@@ -39,6 +39,8 @@ object PlaylistBridge {
     private val scope = CoroutineScope(Dispatchers.Main)
     private var started = false
     private var activity = WeakReference<Activity>(null)
+    private var lastSession = WeakReference<EngineSession>(null)
+    private var progressToast: Toast? = null
 
     /** Installs the extension once and keeps every selected tab connected to it. */
     fun start(engine: Engine, store: BrowserStore, host: Activity) {
@@ -54,6 +56,7 @@ object PlaylistBridge {
                     .distinctUntilChanged()
                     .collect {
                         Log.i("PlaylistBridge", "registering page handler")
+                        lastSession = WeakReference(it)
                         controller.registerContentMessageHandler(it, PageMessages(), PORT)
                     }
             }
@@ -61,13 +64,16 @@ object PlaylistBridge {
     }
 
     /** Asks the page for its loaded videos. False when the page is not connected (the caller then falls back). */
-    fun request(engineSession: EngineSession?): Boolean {
+    fun request(engineSession: EngineSession?, all: Boolean = false): Boolean {
         val connected = engineSession != null && controller.portConnected(engineSession, PORT)
-        Log.i("PlaylistBridge", "page connected: $connected")
+        Log.i("PlaylistBridge", "page connected: $connected, all: $all")
         if (engineSession == null || !connected) return false
-        controller.sendContentMessage(JSONObject().put("action", "collect"), engineSession, PORT)
+        controller.sendContentMessage(JSONObject().put("action", if (all) "collectAll" else "collect"), engineSession, PORT)
         return true
     }
+
+    /** Makes the page scroll itself to load every video, then reopens the picker with the full list. */
+    fun requestAll(): Boolean = request(lastSession.get(), all = true)
 
     private class PageMessages : MessageHandler {
         override fun onPortConnected(port: Port) {
@@ -76,6 +82,15 @@ object PlaylistBridge {
 
         override fun onPortMessage(message: Any, port: Port) {
             val json = message as? JSONObject ?: return
+            if (json.optString("action") == "progress") {
+                val n = json.optInt("count")
+                Handler(Looper.getMainLooper()).post {
+                    val act = activity.get() ?: return@post
+                    progressToast?.cancel()
+                    progressToast = Toast.makeText(act, "Loading the playlist… $n videos", Toast.LENGTH_SHORT).also { it.show() }
+                }
+                return
+            }
             if (json.optString("action") != "items") return
             val page = json.optString("page")
             val items = json.optJSONArray("items")

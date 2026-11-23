@@ -130,6 +130,12 @@ private fun PickerScreen(data: PlaylistSession.Data, onClose: () -> Unit) {
                     TextButton(
                         enabled = !loadingAll,
                         onClick = {
+                            // Preferred: the page scrolls itself and the picker reopens with the full list.
+                            if (PlaylistBridge.requestAll()) {
+                                Toast.makeText(context, "Scrolling the page to load every video…", Toast.LENGTH_SHORT).show()
+                                onClose()
+                                return@TextButton
+                            }
                             loadingAll = true
                             MediaDownloads.get(context).loadPlaylist(
                                 data.pageUrl,
