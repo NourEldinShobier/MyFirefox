@@ -177,12 +177,22 @@ private fun PickerScreen(data: PlaylistSession.Data, onClose: () -> Unit) {
                 }
             }
             HorizontalDivider()
-            Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { queue(Kind.MP3) }, enabled = count > 0, modifier = Modifier.weight(1f)) {
-                    Text("Audio (MP3)")
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = { queue(Kind.AUDIO) }, enabled = count > 0, modifier = Modifier.weight(1f)) {
+                        Text("Audio, best")
+                    }
+                    Button(onClick = { queue(Kind.VOICE) }, enabled = count > 0, modifier = Modifier.weight(1f)) {
+                        Text("Voice, small")
+                    }
                 }
-                OutlinedButton(onClick = { queue(Kind.MP4) }, enabled = count > 0, modifier = Modifier.weight(1f)) {
-                    Text("Video (MP4)")
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = { queue(Kind.MP3) }, enabled = count > 0, modifier = Modifier.weight(1f)) {
+                        Text("MP3")
+                    }
+                    OutlinedButton(onClick = { queue(Kind.MP4) }, enabled = count > 0, modifier = Modifier.weight(1f)) {
+                        Text("Video (MP4)")
+                    }
                 }
             }
         }

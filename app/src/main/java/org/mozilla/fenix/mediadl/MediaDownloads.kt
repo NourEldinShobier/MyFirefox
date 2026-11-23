@@ -26,7 +26,8 @@ import com.farimarwat.library.YoutubeDL
 import kotlinx.coroutines.Job
 import java.io.File
 
-enum class Kind(val label: String) { MP3("MP3"), MP4("MP4") }
+/** AUDIO keeps the site's own stream (no re-encode); VOICE re-encodes to small mono Opus; MP3 is for old players. */
+enum class Kind(val label: String) { AUDIO("Audio, best"), VOICE("Voice, small"), MP3("MP3"), MP4("MP4") }
 enum class Status { QUEUED, RUNNING, SAVING, DONE, FAILED, CANCELED }
 
 /** Which per-site folder a page belongs to. */
@@ -283,8 +284,14 @@ class MediaDownloads private constructor(private val app: Context) {
             .addOption("--sleep-requests", if (job.site == "Instagram") "3" else "1.5")
             .addOption("-o", File(dir, "%(title).150B.%(ext)s").absolutePath)
         when (job.kind) {
+            // Opus is the best stream per MB on YouTube; -x with the default "best" format only remuxes it to .opus (or .m4a for AAC).
+            Kind.AUDIO -> r.addOption("-f", "ba[acodec=opus]/ba/b").addOption("-x")
+            // shortcut: 32 kbps mono suits speech only; raise -b:a for music. Needs libopus in the bundled ffmpeg.
+            Kind.VOICE -> r.addOption("-f", "ba[acodec=opus]/ba/b").addOption("-x").addOption("--audio-format", "opus")
+                .addOption("--postprocessor-args", "ExtractAudio:-ac 1 -b:a 32k -application voip")
+            // VBR V4 (about 160 kbps): sources top out near 128-256 kbps, so a higher setting only wastes space.
             Kind.MP3 -> r.addOption("-f", "bestaudio/best").addOption("-x").addOption("--audio-format", "mp3")
-                .addOption("--audio-quality", "0").addOption("--embed-thumbnail").addOption("--convert-thumbnails", "jpg")
+                .addOption("--audio-quality", "4").addOption("--embed-thumbnail").addOption("--convert-thumbnails", "jpg")
             Kind.MP4 -> r.addOption("-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b").addOption("--merge-output-format", "mp4")
         }
         // YouTube: first try clients that need neither cookies nor a JavaScript challenge (the engine has no JS runtime),
@@ -309,7 +316,7 @@ class MediaDownloads private constructor(private val app: Context) {
             progressCallBack = { pct, _, line ->
                 main.post {
                     if (pct >= 0f) job.percent = pct
-                    titleFrom(line)?.let { if (job.title.isBlank() || job.kind == Kind.MP3) job.title = it }
+                    titleFrom(line)?.let { if (job.title.isBlank() || job.kind != Kind.MP4) job.title = it }
                 }
             },
             onStartProcess = { id -> job.processId = id },

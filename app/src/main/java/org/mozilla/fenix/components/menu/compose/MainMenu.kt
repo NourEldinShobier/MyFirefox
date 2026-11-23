@@ -178,7 +178,7 @@ fun MainMenu(
     moreSettingsSubmenu: @Composable () -> Unit,
     extensionSubmenu: @Composable () -> Unit,
     mediaDownloadUrl: String? = null,
-    onMediaDownloadClick: (audio: Boolean) -> Unit = {},
+    onMediaDownloadClick: (org.mozilla.fenix.mediadl.Kind) -> Unit = {},
     onPlaylistDownloadClick: () -> Unit = {},
 ) {
     MenuFrame(
@@ -313,16 +313,18 @@ fun MainMenu(
         if (accessPoint == MenuAccessPoint.Browser && mediaDownloadUrl != null) {
             MenuGroup {
                 if (org.mozilla.fenix.mediadl.isDownloadable(mediaDownloadUrl)) {
-                    MenuItem(
-                        label = "Download audio (MP3)",
-                        beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
-                        onClick = { onMediaDownloadClick(true) },
-                    )
-                    MenuItem(
-                        label = "Download video (MP4)",
-                        beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
-                        onClick = { onMediaDownloadClick(false) },
-                    )
+                    org.mozilla.fenix.mediadl.Kind.values().forEach { kind ->
+                        MenuItem(
+                            label = when (kind) {
+                                org.mozilla.fenix.mediadl.Kind.AUDIO -> "Download audio (best quality)"
+                                org.mozilla.fenix.mediadl.Kind.VOICE -> "Download audio (voice, small)"
+                                org.mozilla.fenix.mediadl.Kind.MP3 -> "Download audio (MP3)"
+                                org.mozilla.fenix.mediadl.Kind.MP4 -> "Download video (MP4)"
+                            },
+                            beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
+                            onClick = { onMediaDownloadClick(kind) },
+                        )
+                    }
                 }
                 if (org.mozilla.fenix.mediadl.isPlaylist(mediaDownloadUrl)) {
                     MenuItem(

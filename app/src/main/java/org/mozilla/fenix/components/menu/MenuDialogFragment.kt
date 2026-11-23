@@ -631,10 +631,9 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                     }
                                     dismiss()
                                 },
-                                onMediaDownloadClick = { audio ->
+                                onMediaDownloadClick = { kind ->
                                     browserStore.state.selectedTab?.content?.url?.let {
-                                        MediaDownloads.get(requireContext())
-                                            .enqueue(it, if (audio) Kind.MP3 else Kind.MP4)
+                                        MediaDownloads.get(requireContext()).enqueue(it, kind)
                                     }
                                     dismiss()
                                 },
