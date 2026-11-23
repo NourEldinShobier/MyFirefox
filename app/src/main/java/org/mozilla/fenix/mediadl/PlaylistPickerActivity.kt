@@ -89,6 +89,7 @@ private fun PickerScreen(data: PlaylistSession.Data, onClose: () -> Unit) {
     var entries by remember { mutableStateOf(data.entries) }
     var loadingAll by remember { mutableStateOf(false) }
     var loadedAll by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf("") }
     val site = siteOf(data.pageUrl)
     val checked = remember { mutableStateMapOf<String, Boolean>() }
     val count = entries.count { checked[it.url] == true }
@@ -132,10 +133,11 @@ private fun PickerScreen(data: PlaylistSession.Data, onClose: () -> Unit) {
                             loadingAll = true
                             MediaDownloads.get(context).loadPlaylist(
                                 data.pageUrl,
-                                onDone = { list -> entries = list; loadedAll = true; loadingAll = false },
+                                onDone = { list -> entries = list; loadedAll = true; loadingAll = false; note = "Loaded all ${list.size} videos" },
                                 onFail = {
                                     loadingAll = false
-                                    Toast.makeText(context, "Could not load the full list: $it", Toast.LENGTH_LONG).show()
+                                    note = "Could not load the full list: $it"
+                                    android.util.Log.w("PlaylistPicker", "load all failed: $it")
                                 },
                             )
                         },
@@ -144,6 +146,9 @@ private fun PickerScreen(data: PlaylistSession.Data, onClose: () -> Unit) {
                 TextButton(onClick = { val all = count < entries.size; for (e in entries) checked[e.url] = all }) {
                     Text(if (count == entries.size) "Clear" else "Select all")
                 }
+            }
+            if (note.isNotEmpty()) {
+                Text(note, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             HorizontalDivider()
             LazyColumn(Modifier.weight(1f)) {
