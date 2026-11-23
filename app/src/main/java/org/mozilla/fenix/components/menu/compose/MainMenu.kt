@@ -319,7 +319,7 @@ fun MainMenu(
                                 org.mozilla.fenix.mediadl.Kind.AUDIO -> "Download audio (best quality)"
                                 org.mozilla.fenix.mediadl.Kind.VOICE -> "Download audio (voice, small)"
                                 org.mozilla.fenix.mediadl.Kind.MP3 -> "Download audio (MP3)"
-                                org.mozilla.fenix.mediadl.Kind.MP4 -> "Download video (MP4)"
+                                else -> "Download ${kind.label.replaceFirstChar { it.lowercase() }}"
                             },
                             beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
                             onClick = { onMediaDownloadClick(kind) },

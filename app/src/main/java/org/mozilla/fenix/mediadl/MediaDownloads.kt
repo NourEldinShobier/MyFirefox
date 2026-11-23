@@ -27,7 +27,10 @@ import kotlinx.coroutines.Job
 import java.io.File
 
 /** AUDIO keeps the site's own stream (no re-encode); VOICE re-encodes to small mono Opus; MP3 is for old players. */
-enum class Kind(val label: String) { AUDIO("Audio, best"), VOICE("Voice, small"), MP3("MP3"), MP4("MP4") }
+enum class Kind(val label: String, val video: Boolean = false, val maxHeight: Int = 0) {
+    AUDIO("Audio, best"), VOICE("Voice, small"), MP3("MP3"),
+    MP4("Video 1080p", true, 1080), P720("Video 720p", true, 720), P480("Video 480p", true, 480), BEST("Video, best", true),
+}
 enum class Status { QUEUED, RUNNING, SAVING, DONE, FAILED, CANCELED }
 
 /** Which per-site folder a page belongs to. */
@@ -293,7 +296,11 @@ class MediaDownloads private constructor(private val app: Context) {
             // VBR V4 (about 160 kbps): sources top out near 128-256 kbps, so a higher setting only wastes space.
             Kind.MP3 -> r.addOption("-f", "bestaudio/best").addOption("-x").addOption("--audio-format", "mp3")
                 .addOption("--audio-quality", "4").addOption("--embed-thumbnail").addOption("--convert-thumbnails", "jpg")
-            Kind.MP4 -> r.addOption("-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b").addOption("--merge-output-format", "mp4")
+            // Video: prefer mp4 (H.264) streams within the height cap, then anything within the cap, then the best available.
+            Kind.MP4, Kind.P720, Kind.P480, Kind.BEST -> {
+                val h = if (job.kind.maxHeight > 0) "[height<=${job.kind.maxHeight}]" else ""
+                r.addOption("-f", "bv*$h[ext=mp4]+ba[ext=m4a]/b$h[ext=mp4]/bv*$h+ba/b$h/b").addOption("--merge-output-format", "mp4")
+            }
         }
         // YouTube: first try clients that need neither cookies nor a JavaScript challenge (the engine has no JS runtime),
         // then the logged-in cookies with the default clients.
@@ -317,7 +324,7 @@ class MediaDownloads private constructor(private val app: Context) {
             progressCallBack = { pct, _, line ->
                 main.post {
                     if (pct >= 0f) job.percent = pct
-                    titleFrom(line)?.let { if (job.title.isBlank() || job.kind != Kind.MP4) job.title = it }
+                    titleFrom(line)?.let { if (job.title.isBlank() || !job.kind.video) job.title = it }
                 }
             },
             onStartProcess = { id -> job.processId = id },

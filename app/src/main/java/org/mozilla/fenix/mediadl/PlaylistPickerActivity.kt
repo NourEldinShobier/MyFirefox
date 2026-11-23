@@ -191,7 +191,7 @@ private fun PickerScreen(data: PlaylistSession.Data, onClose: () -> Unit) {
                         Text("MP3")
                     }
                     OutlinedButton(onClick = { queue(Kind.MP4) }, enabled = count > 0, modifier = Modifier.weight(1f)) {
-                        Text("Video (MP4)")
+                        Text("Video 1080p")
                     }
                 }
             }
