@@ -287,7 +287,8 @@ class MediaDownloads private constructor(private val app: Context) {
             // Opus is the best stream per MB on YouTube; -x with the default "best" format only remuxes it to .opus (or .m4a for AAC).
             Kind.AUDIO -> r.addOption("-f", "ba[acodec=opus]/ba/b").addOption("-x")
             // shortcut: 32 kbps mono suits speech only; raise -b:a for music. Needs libopus in the bundled ffmpeg.
-            Kind.VOICE -> r.addOption("-f", "ba[acodec=opus]/ba/b").addOption("-x").addOption("--audio-format", "opus")
+            // The source must not already be Opus: yt-dlp copies a matching codec and ignores the encoder arguments.
+            Kind.VOICE -> r.addOption("-f", "ba[ext=m4a]/ba[acodec!=opus]/ba/b").addOption("-x").addOption("--audio-format", "opus")
                 .addOption("--postprocessor-args", "ExtractAudio:-ac 1 -b:a 32k -application voip")
             // VBR V4 (about 160 kbps): sources top out near 128-256 kbps, so a higher setting only wastes space.
             Kind.MP3 -> r.addOption("-f", "bestaudio/best").addOption("-x").addOption("--audio-format", "mp3")
