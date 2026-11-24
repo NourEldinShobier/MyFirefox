@@ -80,7 +80,11 @@ class PlaylistEntry(val url: String, val title: String)
 /** One row of the quality sheet: a video height or an audio preset with an estimated size. */
 class QualityOption(val label: String, val sizeBytes: Long, val kind: Kind, val format: String?)
 
-class MediaInfo(val title: String, val durationSec: Long, val video: List<QualityOption>, val audio: List<QualityOption>)
+/** [attempt] is the login mode the list came from; downloads picked from it must use the same mode to get the same formats. */
+class MediaInfo(
+    val title: String, val durationSec: Long, val video: List<QualityOption>, val audio: List<QualityOption>,
+    val maxHeight: Int = 0, val attempt: Int = 0,
+)
 
 /** [format] overrides the yt-dlp format selector (set by the quality sheet); [tag] replaces the kind's label in the UI. */
 class DownloadJob(
@@ -119,10 +123,11 @@ class MediaDownloads private constructor(private val app: Context) {
 
     fun enqueue(
         url: String, kind: Kind, site: String = siteOf(url), quiet: Boolean = false,
-        format: String? = null, tag: String? = null,
+        format: String? = null, tag: String? = null, attempt: Int = 0,
     ) {
         if (jobs.any { it.url == url && it.kind == kind && it.format == format && it.active }) { if (!quiet) toast("Already downloading this"); return }
         val job = DownloadJob("d${System.currentTimeMillis()}_${counter++}", url, site, kind, format, tag)
+        job.attempt = attempt
         jobs.add(0, job)
         if (!quiet) toast("Download started (${job.site}, ${job.kindLabel})")
         pump()
@@ -132,7 +137,7 @@ class MediaDownloads private constructor(private val app: Context) {
      * Reads the formats of one video with a single yt-dlp request (never prefetched) and turns them into the rows of the
      * quality sheet. Falls back to the logged-in cookies once when the first try is refused.
      */
-    fun loadFormats(url: String, onDone: (MediaInfo) -> Unit, onFail: (String) -> Unit, attempt: Int = 0) {
+    fun loadFormats(url: String, onDone: (MediaInfo) -> Unit, onFail: (String) -> Unit, attempt: Int = 0, weak: MediaInfo? = null) {
         if (attempt == 0) toast("Reading the available qualities…")
         val site = siteOf(url)
         withEngine({
@@ -143,12 +148,16 @@ class MediaDownloads private constructor(private val app: Context) {
                 progressCallBack = { _, _, _ -> },
                 onStartProcess = { },
                 onEndProcess = { resp ->
-                    val info = runCatching { parseFormats(resp.out) }.getOrNull()
+                    val info = runCatching { parseFormats(resp.out, attempt) }.getOrNull()
                     main.post {
                         val err = resp.err.lines().lastOrNull { it.isNotBlank() } ?: "No formats found"
+                        val youtube = site.startsWith("YouTube")
                         when {
-                            info != null -> onDone(info)
-                            attempt == 0 && (site.startsWith("YouTube") || site == "Instagram") -> loadFormats(url, onDone, onFail, 1)
+                            // The no-login clients often list only 360p: look once more with the browser's login and default clients.
+                            attempt == 0 && youtube && (info == null || info.maxHeight <= 360) -> loadFormats(url, onDone, onFail, 1, info)
+                            info != null && (weak == null || info.maxHeight >= weak.maxHeight) -> onDone(info)
+                            weak != null -> onDone(weak)
+                            attempt == 0 && site == "Instagram" -> loadFormats(url, onDone, onFail, 1)
                             else -> onFail(err)
                         }
                     }
@@ -158,7 +167,7 @@ class MediaDownloads private constructor(private val app: Context) {
         }, { onFail(it) })
     }
 
-    private fun parseFormats(json: String): MediaInfo? {
+    private fun parseFormats(json: String, attempt: Int): MediaInfo? {
         val o = org.json.JSONObject(json.substring(json.indexOf('{')))
         val formats = o.optJSONArray("formats") ?: return null
         val duration = o.optDouble("duration", 0.0).toLong()
@@ -189,7 +198,7 @@ class MediaDownloads private constructor(private val app: Context) {
             QualityOption("MP3, compatible (about 160 kbps)", duration * 20000, Kind.MP3, null),
         )
         if (video.isEmpty() && audioOnly.isEmpty()) return null
-        return MediaInfo(o.optString("title", "Video"), duration, video, audio)
+        return MediaInfo(o.optString("title", "Video"), duration, video, audio, videoByHeight.keys.maxOrNull() ?: 0, attempt)
     }
 
     /** Lists every song of a playlist page (yt-dlp pages through lazily loaded lists itself). */

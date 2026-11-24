@@ -81,7 +81,7 @@ private fun QualityScreen(data: QualitySession.Data, onClose: () -> Unit) {
     val info = data.info
 
     fun pick(o: QualityOption) {
-        MediaDownloads.get(context).enqueue(data.pageUrl, o.kind, format = o.format, tag = o.label.substringBefore(" ("))
+        MediaDownloads.get(context).enqueue(data.pageUrl, o.kind, format = o.format, tag = o.label.substringBefore(" ("), attempt = info.attempt)
         onClose()
     }
 

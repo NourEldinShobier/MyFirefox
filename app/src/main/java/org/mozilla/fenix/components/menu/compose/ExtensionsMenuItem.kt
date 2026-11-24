@@ -169,7 +169,7 @@ private fun menuItemStateForExtensions(
     }
 
 @Composable
-private fun NumberedChevronBadge(
+internal fun NumberedChevronBadge(
     count: Int,
     isExpanded: Boolean,
 ) {

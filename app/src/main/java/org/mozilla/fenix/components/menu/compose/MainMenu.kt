@@ -320,12 +320,16 @@ fun MainMenu(
                     val downloadOpen = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
                     MenuItem(
                         label = "Download",
+                        description = "Audio and video, choose quality",
+                        maxDescriptionLines = 1,
                         stateDescription = if (downloadOpen.value) "Expanded" else "Collapsed",
                         beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
                         onClick = { downloadOpen.value = !downloadOpen.value },
-                    )
+                    ) {
+                        NumberedChevronBadge(count = org.mozilla.fenix.mediadl.Kind.values().size, isExpanded = downloadOpen.value)
+                    }
                     ExpandableMenuItemAnimation(isExpanded = downloadOpen.value) {
-                        Column {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             MenuItem(
                                 label = "Choose quality…",
                                 beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
