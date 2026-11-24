@@ -157,6 +157,7 @@ class MediaDownloads private constructor(private val app: Context) {
                 onStartProcess = { },
                 onEndProcess = { resp ->
                     val info = runCatching { parseFormats(resp.out, attempt) }.getOrNull()
+                    if (info == null) android.util.Log.w("QualityPicker", "no formats: exit=${resp.exitCode} out=${resp.out.take(200)} err=${resp.err.takeLast(300)}")
                     main.post {
                         val err = resp.err.lines().lastOrNull { it.isNotBlank() } ?: "No formats found"
                         val youtube = site.startsWith("YouTube")
@@ -188,7 +189,8 @@ class MediaDownloads private constructor(private val app: Context) {
         val audioOnly = list.filter { it.optString("vcodec") == "none" && it.optString("acodec") != "none" }
         val bestAudio = audioOnly.maxByOrNull { it.optDouble("abr", it.optDouble("tbr", 0.0)) }
         val audioBytes = bestAudio?.let { size(it, 128.0) } ?: 0L
-        val videoByHeight = list.filter { it.optString("vcodec").let { v -> v.isNotEmpty() && v != "none" } && it.optInt("height", 0) > 0 }
+        // Generic sites often leave vcodec empty, so only an explicit "none" excludes a format.
+        val videoByHeight = list.filter { it.optString("vcodec") != "none" && it.optInt("height", 0) > 0 }
             .groupBy { it.optInt("height") }
         val video = videoByHeight.keys.sortedDescending().map { h ->
             val fs = videoByHeight.getValue(h)
@@ -204,8 +206,13 @@ class MediaDownloads private constructor(private val app: Context) {
             QualityOption("Voice, small (Opus mono 32 kbps)", duration * 4000, Kind.VOICE, null),
             QualityOption("MP3, compatible (about 160 kbps)", duration * 20000, Kind.MP3, null),
         )
-        if (video.isEmpty() && audioOnly.isEmpty()) return null
-        return MediaInfo(o.optString("title", "Video"), duration, video, audio, videoByHeight.keys.maxOrNull() ?: 0, attempt)
+        if (list.isEmpty()) return null
+        // No heights listed (a plain file or stream): offer the best available instead of nothing.
+        val rows = video.ifEmpty {
+            if (audioOnly.size == list.size) emptyList()
+            else listOf(QualityOption("Best available", list.maxOf { size(it, 0.0) }, Kind.BEST, "bv*+ba/b"))
+        }
+        return MediaInfo(o.optString("title", "Video"), duration, rows, audio, videoByHeight.keys.maxOrNull() ?: 0, attempt)
     }
 
     /** Lists every song of a playlist page (yt-dlp pages through lazily loaded lists itself). */
