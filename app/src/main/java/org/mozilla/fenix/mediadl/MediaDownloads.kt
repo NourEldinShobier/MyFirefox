@@ -516,7 +516,11 @@ class MediaDownloads private constructor(private val app: Context) {
 
     private fun mimeOf(f: File) = when (f.extension.lowercase()) {
         "mp3" -> "audio/mpeg"; "m4a" -> "audio/mp4"; "opus", "ogg" -> "audio/ogg"; "mp4" -> "video/mp4"
-        "webm" -> "video/webm"; "mkv" -> "video/x-matroska"; else -> "application/octet-stream"
+        "webm" -> "video/webm"; "mkv" -> "video/x-matroska"; "ogv" -> "video/ogg"; "m4v" -> "video/x-m4v"
+        "mov" -> "video/quicktime"; "avi" -> "video/x-msvideo"; "flv" -> "video/x-flv"; "3gp" -> "video/3gpp"
+        "ts" -> "video/mp2t"; "wmv" -> "video/x-ms-wmv"; "mpg", "mpeg" -> "video/mpeg"
+        "aac" -> "audio/aac"; "flac" -> "audio/flac"; "wav" -> "audio/wav"
+        else -> "application/octet-stream"
     }
 
     /** Copies [file] into the site's chosen folder, or Download/MyFirefox/<site> when none was chosen. */
@@ -587,7 +591,10 @@ class MediaDownloads private constructor(private val app: Context) {
     }
 
     companion object {
-        private val MEDIA_EXT = setOf("mp3", "m4a", "opus", "ogg", "mp4", "webm", "mkv", "aac", "flac", "wav")
+        private val MEDIA_EXT = setOf(
+            "mp3", "m4a", "opus", "ogg", "mp4", "webm", "mkv", "aac", "flac", "wav",
+            "ogv", "m4v", "mov", "avi", "flv", "3gp", "ts", "wmv", "mpg", "mpeg",
+        )
         const val DONE_CHANNEL = "media_downloads_done"
         const val PROGRESS_CHANNEL = "media_downloads_progress"
 

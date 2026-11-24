@@ -146,12 +146,10 @@ function showChip() {
   chipTimer = setTimeout(() => { if (chip) chip.style.display = "none"; }, 5000);
 }
 
-let wasPlaying = false, ticks = 0;
+let wasPlaying = false;
 setInterval(() => {
   if (document.visibilityState !== "visible") return;
   const v = mainVideo();
-  // [DEBUG-vid1] every 20 s, what the scan sees (remove once the chip is verified)
-  if (port && ticks++ % 10 === 0) port.postMessage({ action: "log", msg: `[DEBUG-vid1] ${location.hostname} videos=${allVideos(document, []).length} main=${!!v}` });
   if (!v) { wasPlaying = false; if (chip) chip.style.display = "none"; return; }
   if (reported !== location.href && port) {
     reported = location.href;
