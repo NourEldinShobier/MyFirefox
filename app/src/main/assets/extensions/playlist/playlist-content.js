@@ -89,9 +89,16 @@ let chip = null, chipTimer = 0, reported = "";
 
 // The page's main player: the largest visible video, preferring the one that is playing. Small previews, thumbnails
 // that autoplay, hidden and off-screen videos are ignored.
+// Players such as archive.org's live inside shadow roots, which plain querySelectorAll does not enter.
+function allVideos(root, out) {
+  root.querySelectorAll("video").forEach(v => out.push(v));
+  root.querySelectorAll("*").forEach(el => { if (el.shadowRoot) allVideos(el.shadowRoot, out); });
+  return out;
+}
+
 function mainVideo() {
   let best = null, bestScore = 0;
-  for (const v of document.querySelectorAll("video")) {
+  for (const v of allVideos(document, [])) {
     const r = v.getBoundingClientRect();
     const w = Math.min(r.right, window.innerWidth) - Math.max(r.left, 0);
     const h = Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0);
@@ -139,13 +146,20 @@ function showChip() {
   chipTimer = setTimeout(() => { if (chip) chip.style.display = "none"; }, 5000);
 }
 
+let wasPlaying = false, ticks = 0;
 setInterval(() => {
+  if (document.visibilityState !== "visible") return;
   const v = mainVideo();
-  if (!v) { if (chip) chip.style.display = "none"; return; }
+  // [DEBUG-vid1] every 20 s, what the scan sees (remove once the chip is verified)
+  if (port && ticks++ % 10 === 0) port.postMessage({ action: "log", msg: `[DEBUG-vid1] ${location.hostname} videos=${allVideos(document, []).length} main=${!!v}` });
+  if (!v) { wasPlaying = false; if (chip) chip.style.display = "none"; return; }
   if (reported !== location.href && port) {
     reported = location.href;
     port.postMessage({ action: "media", page: location.href });
   }
+  // A shadow-DOM player's play event does not reach document, so notice the pause-to-play change here.
+  if (!v.paused && !wasPlaying) showChip();
+  wasPlaying = !v.paused;
   if (chip && chip.style.display === "block") placeChip(v);
 }, 2000);
 document.addEventListener("play", e => { if (e.target && e.target.tagName === "VIDEO") showChip(); }, true);

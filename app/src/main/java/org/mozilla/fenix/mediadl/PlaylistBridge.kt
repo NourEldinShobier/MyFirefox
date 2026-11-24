@@ -96,6 +96,7 @@ object PlaylistBridge {
                 return
             }
             when (json.optString("action")) {
+                "log" -> { Log.i("PlaylistBridge", json.optString("msg")); return }
                 // A playing video was found on the page: the menu then offers Download on any site.
                 "media" -> {
                     synchronized(mediaPages) {
