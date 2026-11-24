@@ -335,6 +335,17 @@ fun MainMenu(
                                 beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
                                 onClick = onMediaQualityClick,
                             )
+                            if (org.mozilla.fenix.mediadl.siteOf(mediaDownloadUrl).startsWith("YouTube")) {
+                                val dl = org.mozilla.fenix.mediadl.MediaDownloads.get(androidx.compose.ui.platform.LocalContext.current)
+                                val login = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(dl.useLogin) }
+                                MenuItem(
+                                    label = "HD video login",
+                                    description = if (login.value) "On: uses your YouTube login" else "Off: video limited to 360p",
+                                    maxDescriptionLines = 1,
+                                    beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_download_24),
+                                    onClick = { login.value = !login.value; dl.useLogin = login.value },
+                                )
+                            }
                             org.mozilla.fenix.mediadl.Kind.values().forEach { kind ->
                                 MenuItem(
                                     label = when (kind) {

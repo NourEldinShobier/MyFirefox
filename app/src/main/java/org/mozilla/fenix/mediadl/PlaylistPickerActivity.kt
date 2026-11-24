@@ -34,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -177,6 +178,22 @@ private fun PickerScreen(data: PlaylistSession.Data, onClose: () -> Unit) {
                 }
             }
             HorizontalDivider()
+            if (site.startsWith("YouTube")) {
+                val dl = MediaDownloads.get(context)
+                var login by remember { mutableStateOf(dl.useLogin) }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Use my YouTube login for HD video", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (login) "On: HD video. YouTube sees your account on every video in the queue."
+                            else "Off: no login, video is limited to 360p. Audio is not affected.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = login, onCheckedChange = { login = it; dl.useLogin = it })
+                }
+                HorizontalDivider()
+            }
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(onClick = { queue(Kind.AUDIO) }, enabled = count > 0, modifier = Modifier.weight(1f)) {

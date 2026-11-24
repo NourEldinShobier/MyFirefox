@@ -87,9 +87,20 @@ async function scrollAll() {
 // Only the chip receives taps; the page and the player keep working as usual.
 let chip = null, chipTimer = 0, reported = "";
 
+// The page's main player: the largest visible video, preferring the one that is playing. Small previews, thumbnails
+// that autoplay, hidden and off-screen videos are ignored.
 function mainVideo() {
-  return Array.from(document.querySelectorAll("video")).find(v =>
-    v.offsetWidth >= 200 && v.offsetHeight >= 110 && v.readyState >= 1 && v.duration > 15) || null;
+  let best = null, bestScore = 0;
+  for (const v of document.querySelectorAll("video")) {
+    const r = v.getBoundingClientRect();
+    const w = Math.min(r.right, window.innerWidth) - Math.max(r.left, 0);
+    const h = Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0);
+    if (w < 200 || h < 110 || v.readyState < 1) continue;
+    if (!(v.duration > 15) && v.duration !== Infinity) continue; // shorter clips are previews; Infinity is a live stream
+    const score = w * h * (v.paused ? 1 : 3);
+    if (score > bestScore) { best = v; bestScore = score; }
+  }
+  return best;
 }
 
 function ensureChip() {

@@ -25,8 +25,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -78,7 +83,21 @@ private fun sizeText(bytes: Long) = when {
 @Composable
 private fun QualityScreen(data: QualitySession.Data, onClose: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val info = data.info
+    val dl = MediaDownloads.get(context)
+    val youtube = siteOf(data.pageUrl).startsWith("YouTube")
+    var info by remember { mutableStateOf(data.info) }
+    var login by remember { mutableStateOf(dl.useLogin) }
+    var loading by remember { mutableStateOf(false) }
+
+    // Switching the login re-reads the list once, so the rows match what the download will get.
+    fun setLogin(on: Boolean) {
+        login = on; dl.useLogin = on; loading = true
+        dl.loadFormats(
+            data.pageUrl,
+            onDone = { info = it; loading = false },
+            onFail = { loading = false; Toast.makeText(context, "Could not read the qualities: $it", Toast.LENGTH_LONG).show() },
+        )
+    }
 
     fun pick(o: QualityOption) {
         MediaDownloads.get(context).enqueue(data.pageUrl, o.kind, format = o.format, tag = o.label.substringBefore(" ("), attempt = info.attempt)
@@ -108,6 +127,22 @@ private fun QualityScreen(data: QualitySession.Data, onClose: () -> Unit) {
                 }
             }
             HorizontalDivider()
+            if (youtube) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Use my YouTube login for HD video", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (login) "On: HD video. YouTube sees your account on each download."
+                            else if (info.maxHeight in 1..360) "Off: no login, so video is limited to 360p."
+                            else "Off: no login. Turn on for higher video qualities.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = login, enabled = !loading, onCheckedChange = { setLogin(it) })
+                }
+                HorizontalDivider()
+            }
+            if (loading) Text("Reading the qualities…", Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.Top) {
                 if (info.video.isNotEmpty()) {
                     item { Text("Video", Modifier.padding(16.dp, 16.dp, 16.dp, 4.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary) }

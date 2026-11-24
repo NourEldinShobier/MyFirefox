@@ -111,6 +111,12 @@ class DownloadJob(
 class MediaDownloads private constructor(private val app: Context) {
     private val prefs: SharedPreferences = app.getSharedPreferences("media_downloads", Context.MODE_PRIVATE)
     val jobs = mutableListOf<DownloadJob>()
+
+    /** When on, YouTube video downloads and quality lists use the browser's login (HD, but the account is exposed to YouTube). */
+    var useLogin: Boolean
+        get() = prefs.getBoolean("useLogin", false)
+        set(v) { prefs.edit().putBoolean("useLogin", v).apply() }
+
     private val main = Handler(Looper.getMainLooper())
     private var initState = 0 // 0 not started, 1 starting, 2 ready, -1 failed
     private var initError = ""
@@ -127,7 +133,7 @@ class MediaDownloads private constructor(private val app: Context) {
     ) {
         if (jobs.any { it.url == url && it.kind == kind && it.format == format && it.active }) { if (!quiet) toast("Already downloading this"); return }
         val job = DownloadJob("d${System.currentTimeMillis()}_${counter++}", url, site, kind, format, tag)
-        job.attempt = attempt
+        job.attempt = if (attempt == 0 && kind.video && site.startsWith("YouTube") && useLogin) 1 else attempt
         jobs.add(0, job)
         if (!quiet) toast("Download started (${job.site}, ${job.kindLabel})")
         pump()
@@ -137,9 +143,11 @@ class MediaDownloads private constructor(private val app: Context) {
      * Reads the formats of one video with a single yt-dlp request (never prefetched) and turns them into the rows of the
      * quality sheet. Falls back to the logged-in cookies once when the first try is refused.
      */
-    fun loadFormats(url: String, onDone: (MediaInfo) -> Unit, onFail: (String) -> Unit, attempt: Int = 0, weak: MediaInfo? = null) {
-        if (attempt == 0) toast("Reading the available qualities…")
+    fun loadFormats(url: String, onDone: (MediaInfo) -> Unit, onFail: (String) -> Unit, firstAttempt: Int = -1, weak: MediaInfo? = null) {
         val site = siteOf(url)
+        // The login switch decides the first try; a refused no-login try still falls back to the login once.
+        val attempt = if (firstAttempt >= 0) firstAttempt else if (site.startsWith("YouTube") && useLogin) 1 else 0
+        if (firstAttempt < 0) toast("Reading the available qualities…")
         withEngine({
             val r = YoutubeDLRequest(url).addOption("--dump-single-json").addOption("--no-playlist").addOption("--skip-download")
             siteArgs(r, site, attempt)
@@ -153,11 +161,10 @@ class MediaDownloads private constructor(private val app: Context) {
                         val err = resp.err.lines().lastOrNull { it.isNotBlank() } ?: "No formats found"
                         val youtube = site.startsWith("YouTube")
                         when {
-                            // The no-login clients often list only 360p: look once more with the browser's login and default clients.
-                            attempt == 0 && youtube && (info == null || info.maxHeight <= 360) -> loadFormats(url, onDone, onFail, 1, info)
+                            attempt == 0 && youtube && info == null -> loadFormats(url, onDone, onFail, 1, null)
                             info != null && (weak == null || info.maxHeight >= weak.maxHeight) -> onDone(info)
                             weak != null -> onDone(weak)
-                            attempt == 0 && site == "Instagram" -> loadFormats(url, onDone, onFail, 1)
+                            attempt == 0 && site == "Instagram" -> loadFormats(url, onDone, onFail, 1, null)
                             else -> onFail(err)
                         }
                     }
