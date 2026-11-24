@@ -41,6 +41,10 @@ object PlaylistBridge {
     private var activity = WeakReference<Activity>(null)
     private var lastSession = WeakReference<EngineSession>(null)
     private var progressToast: Toast? = null
+    private val mediaPages = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
+
+    /** True when the page reported a playing video (any site), so the menu can offer a download. */
+    fun hasMedia(url: String) = url in mediaPages
 
     /** Installs the extension once and keeps every selected tab connected to it. */
     fun start(engine: Engine, store: BrowserStore, host: Activity) {
@@ -90,6 +94,22 @@ object PlaylistBridge {
                     progressToast = Toast.makeText(act, "Loading the playlist… $n videos", Toast.LENGTH_SHORT).also { it.show() }
                 }
                 return
+            }
+            when (json.optString("action")) {
+                // A playing video was found on the page: the menu then offers Download on any site.
+                "media" -> {
+                    synchronized(mediaPages) {
+                        mediaPages.add(json.optString("page"))
+                        if (mediaPages.size > 60) mediaPages.remove(mediaPages.first())
+                    }
+                    return
+                }
+                // The in-page download chip was tapped.
+                "offer" -> {
+                    val page = json.optString("page")
+                    Handler(Looper.getMainLooper()).post { activity.get()?.let { pickQuality(it, page) } }
+                    return
+                }
             }
             if (json.optString("action") != "items") return
             val page = json.optString("page")

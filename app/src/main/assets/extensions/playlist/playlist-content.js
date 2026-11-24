@@ -83,4 +83,66 @@ async function scrollAll() {
   if (port) port.postMessage({ action: "items", page: location.href, items: Array.from(all.values()) });
 }
 
+// IDM-style: when a real video (not a short preview) is on the page, tell the app and show a small download chip on it.
+// Only the chip receives taps; the page and the player keep working as usual.
+let chip = null, chipTimer = 0, reported = "";
+
+function mainVideo() {
+  return Array.from(document.querySelectorAll("video")).find(v =>
+    v.offsetWidth >= 200 && v.offsetHeight >= 110 && v.readyState >= 1 && v.duration > 15) || null;
+}
+
+function ensureChip() {
+  if (chip) return chip;
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;z-index:2147483647;width:0;height:0;pointer-events:none";
+  const root = host.attachShadow({ mode: "closed" });
+  const b = document.createElement("button");
+  b.textContent = "⬇";
+  b.setAttribute("aria-label", "Download this video");
+  b.style.cssText = "position:fixed;width:44px;height:44px;border-radius:22px;border:0;font-size:22px;color:#fff;" +
+    "background:rgba(20,20,24,.82);pointer-events:auto;display:none;box-shadow:0 2px 8px rgba(0,0,0,.5)";
+  b.addEventListener("click", e => {
+    e.preventDefault(); e.stopPropagation();
+    if (port) port.postMessage({ action: "offer", page: location.href });
+  }, true);
+  root.appendChild(b);
+  document.documentElement.appendChild(host);
+  chip = b;
+  return b;
+}
+
+function placeChip(v) {
+  const r = v.getBoundingClientRect();
+  const b = ensureChip();
+  b.style.left = Math.max(8, Math.min(window.innerWidth - 52, r.right - 56)) + "px";
+  b.style.top = Math.max(8, Math.min(window.innerHeight - 52, r.top + 12)) + "px";
+}
+
+function showChip() {
+  const v = mainVideo();
+  if (!v) return;
+  placeChip(v);
+  chip.style.display = "block";
+  clearTimeout(chipTimer);
+  chipTimer = setTimeout(() => { if (chip) chip.style.display = "none"; }, 5000);
+}
+
+setInterval(() => {
+  const v = mainVideo();
+  if (!v) { if (chip) chip.style.display = "none"; return; }
+  if (reported !== location.href && port) {
+    reported = location.href;
+    port.postMessage({ action: "media", page: location.href });
+  }
+  if (chip && chip.style.display === "block") placeChip(v);
+}, 2000);
+document.addEventListener("play", e => { if (e.target && e.target.tagName === "VIDEO") showChip(); }, true);
+document.addEventListener("touchstart", e => {
+  const v = mainVideo();
+  if (!v || !e.touches.length) return;
+  const r = v.getBoundingClientRect(), t = e.touches[0];
+  if (t.clientX >= r.left && t.clientX <= r.right && t.clientY >= r.top && t.clientY <= r.bottom) showChip();
+}, { capture: true, passive: true });
+
 connect();

@@ -2,10 +2,10 @@
   "manifest_version": 2,
   "browser_specific_settings": { "gecko": { "id": "playlist@myfirefox.org" } },
   "name": "MyFirefox playlist reader",
-  "version": "1.0",
+  "version": "1.1",
   "content_scripts": [
     {
-      "matches": ["*://*.youtube.com/*", "*://*.soundcloud.com/*"],
+      "matches": ["<all_urls>"],
       "js": ["playlist-content.js"],
       "run_at": "document_idle"
     }

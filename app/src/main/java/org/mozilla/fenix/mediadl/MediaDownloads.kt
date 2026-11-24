@@ -77,7 +77,17 @@ fun isPlaylist(url: String): Boolean {
 
 class PlaylistEntry(val url: String, val title: String)
 
-class DownloadJob(val id: String, val url: String, val site: String, val kind: Kind) {
+/** One row of the quality sheet: a video height or an audio preset with an estimated size. */
+class QualityOption(val label: String, val sizeBytes: Long, val kind: Kind, val format: String?)
+
+class MediaInfo(val title: String, val durationSec: Long, val video: List<QualityOption>, val audio: List<QualityOption>)
+
+/** [format] overrides the yt-dlp format selector (set by the quality sheet); [tag] replaces the kind's label in the UI. */
+class DownloadJob(
+    val id: String, val url: String, val site: String, val kind: Kind,
+    val format: String? = null, val tag: String? = null,
+) {
+    val kindLabel get() = tag ?: kind.label
     var title = ""
     var status = Status.QUEUED
     var percent = -1f
@@ -107,12 +117,79 @@ class MediaDownloads private constructor(private val app: Context) {
 
     private fun toast(message: String) = main.post { Toast.makeText(app, message, Toast.LENGTH_LONG).show() }
 
-    fun enqueue(url: String, kind: Kind, site: String = siteOf(url), quiet: Boolean = false) {
-        if (jobs.any { it.url == url && it.kind == kind && it.active }) { if (!quiet) toast("Already downloading this"); return }
-        val job = DownloadJob("d${System.currentTimeMillis()}_${counter++}", url, site, kind)
+    fun enqueue(
+        url: String, kind: Kind, site: String = siteOf(url), quiet: Boolean = false,
+        format: String? = null, tag: String? = null,
+    ) {
+        if (jobs.any { it.url == url && it.kind == kind && it.format == format && it.active }) { if (!quiet) toast("Already downloading this"); return }
+        val job = DownloadJob("d${System.currentTimeMillis()}_${counter++}", url, site, kind, format, tag)
         jobs.add(0, job)
-        if (!quiet) toast("Download started (${job.site}, ${kind.label})")
+        if (!quiet) toast("Download started (${job.site}, ${job.kindLabel})")
         pump()
+    }
+
+    /**
+     * Reads the formats of one video with a single yt-dlp request (never prefetched) and turns them into the rows of the
+     * quality sheet. Falls back to the logged-in cookies once when the first try is refused.
+     */
+    fun loadFormats(url: String, onDone: (MediaInfo) -> Unit, onFail: (String) -> Unit, attempt: Int = 0) {
+        if (attempt == 0) toast("Reading the available qualities…")
+        val site = siteOf(url)
+        withEngine({
+            val r = YoutubeDLRequest(url).addOption("--dump-single-json").addOption("--no-playlist").addOption("--skip-download")
+            siteArgs(r, site, attempt)
+            YoutubeDL.download(
+                request = r, pId = null,
+                progressCallBack = { _, _, _ -> },
+                onStartProcess = { },
+                onEndProcess = { resp ->
+                    val info = runCatching { parseFormats(resp.out) }.getOrNull()
+                    main.post {
+                        val err = resp.err.lines().lastOrNull { it.isNotBlank() } ?: "No formats found"
+                        when {
+                            info != null -> onDone(info)
+                            attempt == 0 && (site.startsWith("YouTube") || site == "Instagram") -> loadFormats(url, onDone, onFail, 1)
+                            else -> onFail(err)
+                        }
+                    }
+                },
+                onError = { e -> main.post { onFail(e.message ?: "could not read the qualities") } },
+            )
+        }, { onFail(it) })
+    }
+
+    private fun parseFormats(json: String): MediaInfo? {
+        val o = org.json.JSONObject(json.substring(json.indexOf('{')))
+        val formats = o.optJSONArray("formats") ?: return null
+        val duration = o.optDouble("duration", 0.0).toLong()
+        fun size(f: org.json.JSONObject, fallbackKbps: Double): Long {
+            val exact = f.optLong("filesize", 0L).takeIf { it > 0 } ?: f.optLong("filesize_approx", 0L)
+            if (exact > 0) return exact
+            val kbps = f.optDouble("tbr", f.optDouble("abr", fallbackKbps))
+            return if (duration > 0 && kbps > 0) (kbps * 1000 / 8 * duration).toLong() else 0L
+        }
+        val list = (0 until formats.length()).map { formats.getJSONObject(it) }
+        val audioOnly = list.filter { it.optString("vcodec") == "none" && it.optString("acodec") != "none" }
+        val bestAudio = audioOnly.maxByOrNull { it.optDouble("abr", it.optDouble("tbr", 0.0)) }
+        val audioBytes = bestAudio?.let { size(it, 128.0) } ?: 0L
+        val videoByHeight = list.filter { it.optString("vcodec").let { v -> v.isNotEmpty() && v != "none" } && it.optInt("height", 0) > 0 }
+            .groupBy { it.optInt("height") }
+        val video = videoByHeight.keys.sortedDescending().map { h ->
+            val fs = videoByHeight.getValue(h)
+            val best = fs.maxByOrNull { size(it, 0.0) }!!
+            val muxed = best.optString("acodec") != "none"
+            val total = size(best, 0.0) + if (muxed) 0L else audioBytes
+            val sel = "bv*[height<=$h][ext=mp4]+ba[ext=m4a]/b[height<=$h][ext=mp4]/bv*[height<=$h]+ba/b[height<=$h]/b"
+            val fps = best.optInt("fps", 0).takeIf { it > 30 }?.let { " ${it}fps" } ?: ""
+            QualityOption("${h}p$fps", total, Kind.BEST, sel)
+        }
+        val audio = listOf(
+            QualityOption("Original, best quality (no re-encode)", audioBytes, Kind.AUDIO, null),
+            QualityOption("Voice, small (Opus mono 32 kbps)", duration * 4000, Kind.VOICE, null),
+            QualityOption("MP3, compatible (about 160 kbps)", duration * 20000, Kind.MP3, null),
+        )
+        if (video.isEmpty() && audioOnly.isEmpty()) return null
+        return MediaInfo(o.optString("title", "Video"), duration, video, audio)
     }
 
     /** Lists every song of a playlist page (yt-dlp pages through lazily loaded lists itself). */
@@ -277,6 +354,26 @@ class MediaDownloads private constructor(private val app: Context) {
         }
     }
 
+    /**
+     * Per-site yt-dlp options shared by downloads and the format reader. YouTube: first try clients that need neither
+     * cookies nor a JavaScript challenge, then the logged-in cookies with the default clients (attempt 1).
+     */
+    private fun siteArgs(r: YoutubeDLRequest, site: String, attempt: Int) {
+        val youtube = site.startsWith("YouTube")
+        if (youtube) {
+            // QuickJS (built in CI) solves YouTube's "n" challenge; the solver script is fetched once from GitHub.
+            val qjs = File(app.applicationInfo.nativeLibraryDir, "libqjs.so")
+            if (qjs.exists()) r.addOption("--js-runtimes", "quickjs:${qjs.absolutePath}")
+            r.addOption("--remote-components", "ejs:github")
+        }
+        if (youtube && attempt == 0) r.addOption("--extractor-args", "youtube:player_client=android_vr,android")
+        else if (youtube || site == "Instagram") {
+            // Cookies only where the site needs a login: Instagram always, YouTube only on the retry.
+            runCatching { exportCookies(site) }
+            if (cookieFile.exists() && cookieFile.length() > 0) r.addOption("--cookies", cookieFile.absolutePath)
+        }
+    }
+
     private fun start(job: DownloadJob) {
         val dir = File(app.cacheDir, "dl/${job.id}").apply { deleteRecursively(); mkdirs() }
         val r = YoutubeDLRequest(job.url)
@@ -299,24 +396,10 @@ class MediaDownloads private constructor(private val app: Context) {
             // Video: prefer mp4 (H.264) streams within the height cap, then anything within the cap, then the best available.
             Kind.MP4, Kind.P720, Kind.P480, Kind.BEST -> {
                 val h = if (job.kind.maxHeight > 0) "[height<=${job.kind.maxHeight}]" else ""
-                r.addOption("-f", "bv*$h[ext=mp4]+ba[ext=m4a]/b$h[ext=mp4]/bv*$h+ba/b$h/b").addOption("--merge-output-format", "mp4")
+                r.addOption("-f", job.format ?: "bv*$h[ext=mp4]+ba[ext=m4a]/b$h[ext=mp4]/bv*$h+ba/b$h/b").addOption("--merge-output-format", "mp4")
             }
         }
-        // YouTube: first try clients that need neither cookies nor a JavaScript challenge (the engine has no JS runtime),
-        // then the logged-in cookies with the default clients.
-        val youtube = job.site.startsWith("YouTube")
-        if (youtube) {
-            // QuickJS (built in CI) solves YouTube's "n" challenge; the solver script is fetched once from GitHub.
-            val qjs = File(app.applicationInfo.nativeLibraryDir, "libqjs.so")
-            if (qjs.exists()) r.addOption("--js-runtimes", "quickjs:${qjs.absolutePath}")
-            r.addOption("--remote-components", "ejs:github")
-        }
-        if (youtube && job.attempt == 0) r.addOption("--extractor-args", "youtube:player_client=android_vr,android")
-        else if (youtube || job.site == "Instagram") {
-            // Cookies only where the site needs a login: Instagram always, YouTube only on the retry.
-            runCatching { exportCookies(job.site) }
-            if (cookieFile.exists() && cookieFile.length() > 0) r.addOption("--cookies", cookieFile.absolutePath)
-        }
+        siteArgs(r, job.site, job.attempt)
 
         job.job = YoutubeDL.download(
             request = r,
@@ -470,7 +553,7 @@ class MediaDownloads private constructor(private val app: Context) {
             .setContentTitle(j?.title?.ifBlank { null } ?: "Downloading…")
             .setContentText(
                 buildString {
-                    append(j?.let { "${it.site} · ${it.kind.label}" } ?: "Starting")
+                    append(j?.let { "${it.site} · ${it.kindLabel}" } ?: "Starting")
                     if (more > 0) append(" · $more waiting")
                 },
             )

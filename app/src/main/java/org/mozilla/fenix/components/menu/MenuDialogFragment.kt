@@ -621,13 +621,22 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                     menuStore.dispatch(MenuAction.Navigate.Downloads)
                                 },
                                 mediaDownloadUrl = browserStore.state.selectedTab?.content?.url
-                                    ?.takeIf { isDownloadable(it) || org.mozilla.fenix.mediadl.isPlaylist(it) },
+                                    ?.takeIf {
+                                        isDownloadable(it) || org.mozilla.fenix.mediadl.isPlaylist(it) ||
+                                            org.mozilla.fenix.mediadl.PlaylistBridge.hasMedia(it)
+                                    },
                                 onPlaylistDownloadClick = {
                                     val tab = browserStore.state.selectedTab
                                     if (tab != null) {
                                         // The page lists what you have scrolled to; when it can't, ask yt-dlp for the whole list.
                                         val read = org.mozilla.fenix.mediadl.PlaylistBridge.request(tab.engineState.engineSession)
                                         if (!read) org.mozilla.fenix.mediadl.pickPlaylistSongs(requireActivity(), tab.content.url)
+                                    }
+                                    dismiss()
+                                },
+                                onMediaQualityClick = {
+                                    browserStore.state.selectedTab?.content?.url?.let {
+                                        org.mozilla.fenix.mediadl.pickQuality(requireActivity(), it)
                                     }
                                     dismiss()
                                 },
