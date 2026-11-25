@@ -87,6 +87,21 @@ async function scrollAll() {
 // Only the chip receives taps; the page and the player keep working as usual.
 let chip = null, chipTimer = 0, reported = "";
 
+// Players are often inside an iframe from another host. Only the top frame holds the app port, so a frame hands its
+// address up with postMessage and the top frame forwards it.
+const isTop = window === window.top;
+function sendToApp(kind) {
+  if (isTop) { if (port) port.postMessage({ action: kind, page: location.href }); }
+  else if (/^https?:/.test(location.href)) window.top.postMessage({ mfRelay: 1, kind, frame: location.href }, "*");
+}
+if (isTop) {
+  window.addEventListener("message", e => {
+    const d = e.data;
+    if (!port || !d || d.mfRelay !== 1 || (d.kind !== "media" && d.kind !== "offer") || !/^https?:/.test(d.frame)) return;
+    port.postMessage({ action: d.kind, page: location.href, frame: d.frame });
+  });
+}
+
 // The page's main player: the largest visible video, preferring the one that is playing. Small previews, thumbnails
 // that autoplay, hidden and off-screen videos are ignored.
 // Players such as archive.org's live inside shadow roots, which plain querySelectorAll does not enter.
@@ -116,13 +131,20 @@ function ensureChip() {
   host.style.cssText = "position:fixed;z-index:2147483647;width:0;height:0;pointer-events:none";
   const root = host.attachShadow({ mode: "closed" });
   const b = document.createElement("button");
-  b.textContent = "⬇";
+  // Tabler "download" icon (MIT) on a frosted-glass disc.
+  b.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"/>' +
+    '<path d="M7 11l5 5l5 -5"/><path d="M12 4l0 12"/></svg>';
   b.setAttribute("aria-label", "Download this video");
-  b.style.cssText = "position:fixed;width:44px;height:44px;border-radius:22px;border:0;font-size:22px;color:#fff;" +
-    "background:rgba(20,20,24,.82);pointer-events:auto;display:none;box-shadow:0 2px 8px rgba(0,0,0,.5)";
+  b.style.cssText = "position:fixed;width:46px;height:46px;padding:0;border-radius:50%;color:#fff;display:none;" +
+    "align-items:center;justify-content:center;pointer-events:auto;" +
+    "background:linear-gradient(145deg,rgba(255,255,255,.34),rgba(255,255,255,.08));" +
+    "border:1px solid rgba(255,255,255,.45);-webkit-backdrop-filter:blur(14px) saturate(1.8);" +
+    "backdrop-filter:blur(14px) saturate(1.8);" +
+    "box-shadow:0 4px 14px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.6)";
   b.addEventListener("click", e => {
     e.preventDefault(); e.stopPropagation();
-    if (port) port.postMessage({ action: "offer", page: location.href });
+    sendToApp("offer");
   }, true);
   root.appendChild(b);
   document.documentElement.appendChild(host);
@@ -141,7 +163,7 @@ function showChip() {
   const v = mainVideo();
   if (!v) return;
   placeChip(v);
-  chip.style.display = "block";
+  chip.style.display = "flex";
   clearTimeout(chipTimer);
   chipTimer = setTimeout(() => { if (chip) chip.style.display = "none"; }, 5000);
 }
@@ -151,14 +173,16 @@ setInterval(() => {
   if (document.visibilityState !== "visible") return;
   const v = mainVideo();
   if (!v) { wasPlaying = false; if (chip) chip.style.display = "none"; return; }
-  if (reported !== location.href && port) {
+  // A frame repeats its report: the top frame may not have its port yet.
+  if (!isTop) sendToApp("media");
+  else if (reported !== location.href && port) {
     reported = location.href;
-    port.postMessage({ action: "media", page: location.href });
+    sendToApp("media");
   }
   // A shadow-DOM player's play event does not reach document, so notice the pause-to-play change here.
   if (!v.paused && !wasPlaying) showChip();
   wasPlaying = !v.paused;
-  if (chip && chip.style.display === "block") placeChip(v);
+  if (chip && chip.style.display === "flex") placeChip(v);
 }, 2000);
 document.addEventListener("play", e => { if (e.target && e.target.tagName === "VIDEO") showChip(); }, true);
 document.addEventListener("touchstart", e => {
@@ -168,4 +192,4 @@ document.addEventListener("touchstart", e => {
   if (t.clientX >= r.left && t.clientX <= r.right && t.clientY >= r.top && t.clientY <= r.bottom) showChip();
 }, { capture: true, passive: true });
 
-connect();
+if (isTop) connect();

@@ -48,7 +48,8 @@ object QualitySession {
 }
 
 /** Reads the qualities of the page's video (one request), then opens the sheet. */
-fun pickQuality(activity: Activity, pageUrl: String) {
+fun pickQuality(activity: Activity, page: String) {
+    val pageUrl = PlaylistBridge.playerUrl(page)
     MediaDownloads.get(activity).loadFormats(
         pageUrl,
         onDone = { info ->

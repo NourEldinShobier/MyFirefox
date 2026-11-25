@@ -7,6 +7,7 @@
     {
       "matches": ["<all_urls>"],
       "js": ["playlist-content.js"],
+      "all_frames": true,
       "run_at": "document_idle"
     }
   ],

@@ -150,6 +150,7 @@ class MediaDownloads private constructor(private val app: Context) {
         if (firstAttempt < 0) toast("Reading the available qualities…")
         withEngine({
             val r = YoutubeDLRequest(url).addOption("--dump-single-json").addOption("--no-playlist").addOption("--skip-download")
+            PlaylistBridge.refererFor(url)?.let { r.addOption("--referer", it) }
             siteArgs(r, site, attempt)
             YoutubeDL.download(
                 request = r, pId = null,
@@ -403,6 +404,8 @@ class MediaDownloads private constructor(private val app: Context) {
             .addOption("--no-playlist")
             .addOption("--no-mtime")
             .addOption("--embed-metadata")
+        PlaylistBridge.refererFor(job.url)?.let { r.addOption("--referer", it) }
+        r
             .addOption("--retries", "3").addOption("--socket-timeout", "20")
             .addOption("--sleep-requests", if (job.site == "Instagram") "3" else "1.5")
             .addOption("-o", File(dir, "%(title).150B.%(ext)s").absolutePath)

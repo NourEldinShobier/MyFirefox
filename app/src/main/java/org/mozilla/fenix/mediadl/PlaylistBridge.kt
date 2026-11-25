@@ -46,6 +46,21 @@ object PlaylistBridge {
     /** True when the page reported a playing video (any site), so the menu can offer a download. */
     fun hasMedia(url: String) = url in mediaPages
 
+    // Many sites put the player in an iframe from another host (page -> iframe address). yt-dlp is given the iframe
+    // address with the page as referer, because embed hosts usually refuse requests that do not come from the page.
+    private val frames = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val referers = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    fun playerUrl(page: String): String = frames[page] ?: page
+    fun refererFor(url: String): String? = referers[url]
+
+    private fun rememberFrame(page: String, frame: String) {
+        if (!frame.startsWith("http") || frame == page) return
+        if (frames.size > 60) { frames.clear(); referers.clear() }
+        frames[page] = frame
+        referers[frame] = page
+    }
+
     /** Installs the extension once and keeps every selected tab connected to it. */
     fun start(engine: Engine, store: BrowserStore, host: Activity) {
         activity = WeakReference(host)
@@ -99,6 +114,7 @@ object PlaylistBridge {
                 "log" -> { Log.i("PlaylistBridge", json.optString("msg")); return }
                 // A playing video was found on the page: the menu then offers Download on any site.
                 "media" -> {
+                    rememberFrame(json.optString("page"), json.optString("frame"))
                     synchronized(mediaPages) {
                         mediaPages.add(json.optString("page"))
                         if (mediaPages.size > 60) mediaPages.remove(mediaPages.first())
@@ -108,6 +124,7 @@ object PlaylistBridge {
                 // The in-page download chip was tapped.
                 "offer" -> {
                     val page = json.optString("page")
+                    rememberFrame(page, json.optString("frame"))
                     Handler(Looper.getMainLooper()).post { activity.get()?.let { pickQuality(it, page) } }
                     return
                 }
