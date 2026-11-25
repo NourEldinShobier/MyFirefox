@@ -53,24 +53,25 @@ fun pickQuality(activity: Activity, page: String) {
     val fallback = PlaylistBridge.playerUrl(page)
     val found = PlaylistBridge.streamsFor(page)
     when {
-        // Several streams: let the user pick (ads and previews load streams too).
-        found.size > 1 -> {
+        // Several plain files: let the user pick (ads and previews load files too).
+        found.size > 1 && found.any { it.kind == "video" || it.kind == "audio" } -> {
             val labels = found.map { s ->
                 val kind = when (s.kind) { "hls" -> "Stream (HLS)"; "dash" -> "Stream (DASH)"; "audio" -> "Audio file"; else -> "Video file" }
                 val name = Uri.parse(s.url).let { (it.host ?: "") + "/" + (it.lastPathSegment ?: "") }.take(46)
                 (if (s.size > 0) "$kind · ${sizeText(s.size)}" else kind) + "\n" + name
             }.toTypedArray()
             android.app.AlertDialog.Builder(activity).setTitle("Which video?")
-                .setItems(labels) { _, i -> readQualities(activity, found[i].url, fallback) }
+                .setItems(labels) { _, i -> readQualities(activity, (listOf(found[i].url) + found.map { it.url } + fallback).distinct()) }
                 .setNegativeButton("Cancel", null).show()
         }
-        found.size == 1 -> readQualities(activity, found[0].url, fallback)
-        else -> readQualities(activity, fallback, null)
+        // Playlists are tried in order: a one-time or protected master playlist (HTTP 403) falls through to the next one.
+        else -> readQualities(activity, (found.map { it.url } + fallback).distinct())
     }
 }
 
-/** Reads one address's qualities; when a found stream cannot be read, tries the player page once. */
-private fun readQualities(activity: Activity, pageUrl: String, fallback: String?) {
+/** Reads the qualities of the first address that works, trying the list in order. */
+private fun readQualities(activity: Activity, urls: List<String>) {
+    val pageUrl = urls.first()
     MediaDownloads.get(activity).loadFormats(
         pageUrl,
         onDone = { info ->
@@ -81,7 +82,7 @@ private fun readQualities(activity: Activity, pageUrl: String, fallback: String?
         },
         onFail = {
             Log.w("QualityPicker", "format read failed: $it")
-            if (fallback != null && fallback != pageUrl) readQualities(activity, fallback, null)
+            if (urls.size > 1) readQualities(activity, urls.drop(1))
             else Toast.makeText(activity, "Could not read the qualities: $it", Toast.LENGTH_LONG).show()
         },
     )
