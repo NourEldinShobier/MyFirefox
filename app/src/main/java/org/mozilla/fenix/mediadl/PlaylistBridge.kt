@@ -58,6 +58,7 @@ object PlaylistBridge {
 
     private val streams = java.util.concurrent.ConcurrentHashMap<String, List<Stream>>()
     private val userAgents = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val sentHeaders = java.util.concurrent.ConcurrentHashMap<String, Map<String, String>>()()
 
     /** Streams found for a page on sites yt-dlp has no extractor for; YouTube, Instagram and SoundCloud use their page. */
     fun streamsFor(page: String): List<Stream> = if (siteOf(page) == "Other") streams[page].orEmpty() else emptyList()
@@ -67,8 +68,12 @@ object PlaylistBridge {
 
     /** Gives yt-dlp the headers the browser used, since embed and CDN hosts often refuse requests without them. */
     fun applyHeaders(r: com.farimarwat.commons.YoutubeDLRequest, url: String) {
-        referers[url]?.let { r.addOption("--referer", it) }
+        val sent = sentHeaders[url]
+        (sent?.entries?.firstOrNull { it.key.equals("Referer", true) }?.value ?: referers[url])?.let { r.addOption("--referer", it) }
         userAgents[url]?.let { r.addOption("--user-agent", it) }
+        // Origin, cookies and other headers the browser sent with this very request.
+        sent?.forEach { (k, v) -> if (!k.equals("Referer", true) && v.isNotBlank()) r.addOption("--add-header", "$k:$v") }
+        Log.i("PlaylistBridge", "[DEBUG-h1] headers sent with yt-dlp: ${sent?.keys} ua=${userAgents[url] != null}")
     }
 
     private fun rememberStreams(page: String, arr: org.json.JSONArray?) {
@@ -79,9 +84,12 @@ object PlaylistBridge {
                 val u = it.optString("url")
                 it.optString("ref").takeIf { r -> r.startsWith("http") }?.let { r -> referers[u] = r }
                 it.optString("ua").takeIf { a -> a.isNotBlank() }?.let { a -> userAgents[u] = a }
+                it.optJSONObject("headers")?.let { h ->
+                    sentHeaders[u] = h.keys().asSequence().associateWith { k -> h.optString(k) }
+                }
                 Stream(u, it.optString("kind"), it.optLong("size"))
             }
-        if (streams.size > 60) { streams.clear(); userAgents.clear() }
+        if (streams.size > 60) { streams.clear(); userAgents.clear(); sentHeaders.clear() }
         streams[page] = list
     }
 

@@ -32,6 +32,22 @@ function totalSize(h) {
   return n > 0 ? n : 0;
 }
 
+// The headers the browser itself sent with each request (Referer, Origin, cookies, ...): protected hosts check them,
+// and a download manager has to repeat them.
+const sent = new Map(); // url -> headers
+browser.webRequest.onBeforeSendHeaders.addListener(d => {
+  if (d.tabId < 0) return;
+  const keep = {};
+  for (const h of d.requestHeaders || []) {
+    const n = h.name.toLowerCase();
+    if (n === "referer" || n === "origin" || n === "cookie" || n === "authorization" || n === "accept-language" || n.startsWith("x-")) keep[h.name] = h.value || "";
+  }
+  const key = d.url.split("#")[0];
+  sent.delete(key);
+  sent.set(key, keep);
+  if (sent.size > 400) sent.delete(sent.keys().next().value);
+}, { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other", "object"] }, ["requestHeaders"]);
+
 browser.webRequest.onHeadersReceived.addListener(d => {
   if (d.tabId < 0 || (d.statusCode !== 200 && d.statusCode !== 206)) return;
   let u;
@@ -49,7 +65,7 @@ browser.webRequest.onHeadersReceived.addListener(d => {
   const key = d.url.split("#")[0];
   const old = tab.get(key);
   tab.delete(key); // re-insert so the newest request is last
-  tab.set(key, { url: key, kind, size: size || (old ? old.size : 0), ref: d.documentUrl || d.originUrl || "", ua: navigator.userAgent });
+  tab.set(key, { url: key, kind, size: size || (old ? old.size : 0), ref: d.documentUrl || d.originUrl || "", ua: navigator.userAgent, headers: sent.get(key) || {} });
   if (tab.size > 40) tab.delete(tab.keys().next().value);
 }, { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other", "object"] }, ["responseHeaders"]);
 
