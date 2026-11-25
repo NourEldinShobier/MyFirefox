@@ -58,7 +58,7 @@ object PlaylistBridge {
 
     private val streams = java.util.concurrent.ConcurrentHashMap<String, List<Stream>>()
     private val userAgents = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private val sentHeaders = java.util.concurrent.ConcurrentHashMap<String, Map<String, String>>()()
+    private val sentHeaders = java.util.concurrent.ConcurrentHashMap<String, Map<String, String>>()
 
     /** Streams found for a page on sites yt-dlp has no extractor for; YouTube, Instagram and SoundCloud use their page. */
     fun streamsFor(page: String): List<Stream> = if (siteOf(page) == "Other") streams[page].orEmpty() else emptyList()
@@ -69,7 +69,8 @@ object PlaylistBridge {
     /** Gives yt-dlp the headers the browser used, since embed and CDN hosts often refuse requests without them. */
     fun applyHeaders(r: com.farimarwat.commons.YoutubeDLRequest, url: String) {
         val sent = sentHeaders[url]
-        (sent?.entries?.firstOrNull { it.key.equals("Referer", true) }?.value ?: referers[url])?.let { r.addOption("--referer", it) }
+        val referer = sent?.entries?.firstOrNull { it.key.equals("Referer", true) }?.value ?: referers[url]
+        referer?.let { r.addOption("--referer", it) }
         userAgents[url]?.let { r.addOption("--user-agent", it) }
         // Origin, cookies and other headers the browser sent with this very request.
         sent?.forEach { (k, v) -> if (!k.equals("Referer", true) && v.isNotBlank()) r.addOption("--add-header", "$k:$v") }
