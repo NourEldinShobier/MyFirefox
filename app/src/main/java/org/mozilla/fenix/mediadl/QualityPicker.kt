@@ -6,6 +6,7 @@ package org.mozilla.fenix.mediadl
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -49,7 +50,27 @@ object QualitySession {
 
 /** Reads the qualities of the page's video (one request), then opens the sheet. */
 fun pickQuality(activity: Activity, page: String) {
-    val pageUrl = PlaylistBridge.playerUrl(page)
+    val fallback = PlaylistBridge.playerUrl(page)
+    val found = PlaylistBridge.streamsFor(page)
+    when {
+        // Several streams: let the user pick (ads and previews load streams too).
+        found.size > 1 -> {
+            val labels = found.map { s ->
+                val kind = when (s.kind) { "hls" -> "Stream (HLS)"; "dash" -> "Stream (DASH)"; "audio" -> "Audio file"; else -> "Video file" }
+                val name = Uri.parse(s.url).let { (it.host ?: "") + "/" + (it.lastPathSegment ?: "") }.take(46)
+                (if (s.size > 0) "$kind · ${sizeText(s.size)}" else kind) + "\n" + name
+            }.toTypedArray()
+            android.app.AlertDialog.Builder(activity).setTitle("Which video?")
+                .setItems(labels) { _, i -> readQualities(activity, found[i].url, fallback) }
+                .setNegativeButton("Cancel", null).show()
+        }
+        found.size == 1 -> readQualities(activity, found[0].url, fallback)
+        else -> readQualities(activity, fallback, null)
+    }
+}
+
+/** Reads one address's qualities; when a found stream cannot be read, tries the player page once. */
+private fun readQualities(activity: Activity, pageUrl: String, fallback: String?) {
     MediaDownloads.get(activity).loadFormats(
         pageUrl,
         onDone = { info ->
@@ -60,7 +81,8 @@ fun pickQuality(activity: Activity, page: String) {
         },
         onFail = {
             Log.w("QualityPicker", "format read failed: $it")
-            Toast.makeText(activity, "Could not read the qualities: $it", Toast.LENGTH_LONG).show()
+            if (fallback != null && fallback != pageUrl) readQualities(activity, fallback, null)
+            else Toast.makeText(activity, "Could not read the qualities: $it", Toast.LENGTH_LONG).show()
         },
     )
 }

@@ -52,7 +52,38 @@ object PlaylistBridge {
     private val referers = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     fun playerUrl(page: String): String = frames[page] ?: page
-    fun refererFor(url: String): String? = referers[url]
+
+    /** A video, audio or playlist (HLS / DASH) address the page loaded, seen by the extension's request watcher. */
+    class Stream(val url: String, val kind: String, val size: Long)
+
+    private val streams = java.util.concurrent.ConcurrentHashMap<String, List<Stream>>()
+    private val userAgents = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** Streams found for a page on sites yt-dlp has no extractor for; YouTube, Instagram and SoundCloud use their page. */
+    fun streamsFor(page: String): List<Stream> = if (siteOf(page) == "Other") streams[page].orEmpty() else emptyList()
+
+    /** What a one-tap download should fetch: the best found stream, else the player frame, else the page. */
+    fun downloadUrl(page: String): String = streamsFor(page).firstOrNull()?.url ?: playerUrl(page)
+
+    /** Gives yt-dlp the headers the browser used, since embed and CDN hosts often refuse requests without them. */
+    fun applyHeaders(r: com.farimarwat.commons.YoutubeDLRequest, url: String) {
+        referers[url]?.let { r.addOption("--referer", it) }
+        userAgents[url]?.let { r.addOption("--user-agent", it) }
+    }
+
+    private fun rememberStreams(page: String, arr: org.json.JSONArray?) {
+        if (arr == null || arr.length() == 0) return
+        val list = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+            .filter { it.optString("url").startsWith("http") }
+            .map {
+                val u = it.optString("url")
+                it.optString("ref").takeIf { r -> r.startsWith("http") }?.let { r -> referers[u] = r }
+                it.optString("ua").takeIf { a -> a.isNotBlank() }?.let { a -> userAgents[u] = a }
+                Stream(u, it.optString("kind"), it.optLong("size"))
+            }
+        if (streams.size > 60) { streams.clear(); userAgents.clear() }
+        streams[page] = list
+    }
 
     private fun rememberFrame(page: String, frame: String) {
         if (!frame.startsWith("http") || frame == page) return
@@ -115,6 +146,7 @@ object PlaylistBridge {
                 // A playing video was found on the page: the menu then offers Download on any site.
                 "media" -> {
                     rememberFrame(json.optString("page"), json.optString("frame"))
+                    rememberStreams(json.optString("page"), json.optJSONArray("streams"))
                     synchronized(mediaPages) {
                         mediaPages.add(json.optString("page"))
                         if (mediaPages.size > 60) mediaPages.remove(mediaPages.first())
@@ -125,6 +157,7 @@ object PlaylistBridge {
                 "offer" -> {
                     val page = json.optString("page")
                     rememberFrame(page, json.optString("frame"))
+                    rememberStreams(page, json.optJSONArray("streams"))
                     Handler(Looper.getMainLooper()).post { activity.get()?.let { pickQuality(it, page) } }
                     return
                 }

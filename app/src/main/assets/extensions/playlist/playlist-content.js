@@ -90,15 +90,21 @@ let chip = null, chipTimer = 0, reported = "";
 // Players are often inside an iframe from another host. Only the top frame holds the app port, so a frame hands its
 // address up with postMessage and the top frame forwards it.
 const isTop = window === window.top;
+// The tab's stream list (video, audio and playlist requests seen by the background script) travels with each report.
+function postToApp(kind, frame) {
+  if (!port) return;
+  browser.runtime.sendMessage({ q: "streams" }).catch(() => []).then(streams =>
+    port && port.postMessage({ action: kind, page: location.href, frame: frame || "", streams: streams || [] }));
+}
 function sendToApp(kind) {
-  if (isTop) { if (port) port.postMessage({ action: kind, page: location.href }); }
+  if (isTop) postToApp(kind, "");
   else if (/^https?:/.test(location.href)) window.top.postMessage({ mfRelay: 1, kind, frame: location.href }, "*");
 }
 if (isTop) {
   window.addEventListener("message", e => {
     const d = e.data;
     if (!port || !d || d.mfRelay !== 1 || (d.kind !== "media" && d.kind !== "offer") || !/^https?:/.test(d.frame)) return;
-    port.postMessage({ action: d.kind, page: location.href, frame: d.frame });
+    postToApp(d.kind, d.frame);
   });
 }
 
@@ -155,7 +161,7 @@ function ensureChip() {
 function placeChip(v) {
   const r = v.getBoundingClientRect();
   const b = ensureChip();
-  b.style.left = Math.max(8, Math.min(window.innerWidth - 52, r.right - 56)) + "px";
+  b.style.left = Math.max(8, Math.min(window.innerWidth - 64, r.right - 68)) + "px";
   b.style.top = Math.max(8, Math.min(window.innerHeight - 52, r.top + 12)) + "px";
 }
 
@@ -172,13 +178,17 @@ let wasPlaying = false;
 setInterval(() => {
   if (document.visibilityState !== "visible") return;
   const v = mainVideo();
+  if (isTop && port) {
+    // The menu offers Download once the page has a main video or the network showed a stream.
+    browser.runtime.sendMessage({ q: "streams" }).catch(() => []).then(s => {
+      const sig = location.href + "|" + (v ? 1 : 0) + "|" + (s ? s.length : 0);
+      if ((v || (s && s.length)) && sig !== reported && port) {
+        reported = sig;
+        port.postMessage({ action: "media", page: location.href, frame: "", streams: s || [] });
+      }
+    });
+  } else if (!isTop && v) sendToApp("media"); // a frame repeats its report: the top frame may not have its port yet
   if (!v) { wasPlaying = false; if (chip) chip.style.display = "none"; return; }
-  // A frame repeats its report: the top frame may not have its port yet.
-  if (!isTop) sendToApp("media");
-  else if (reported !== location.href && port) {
-    reported = location.href;
-    sendToApp("media");
-  }
   // A shadow-DOM player's play event does not reach document, so notice the pause-to-play change here.
   if (!v.paused && !wasPlaying) showChip();
   wasPlaying = !v.paused;

@@ -11,5 +11,6 @@
       "run_at": "document_idle"
     }
   ],
-  "permissions": ["geckoViewAddons", "nativeMessaging", "nativeMessagingFromContent"]
+  "background": { "scripts": ["background.js"] },
+  "permissions": ["geckoViewAddons", "nativeMessaging", "nativeMessagingFromContent", "webRequest", "tabs", "<all_urls>"]
 }
