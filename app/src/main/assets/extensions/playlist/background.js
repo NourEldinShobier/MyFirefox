@@ -63,7 +63,9 @@ browser.tabs.onRemoved.addListener(id => found.delete(id));
 // Playlists first (their segments are not worth listing); otherwise the biggest files first.
 function list(tabId) {
   const all = Array.from((found.get(tabId) || new Map()).values());
-  const manifests = all.filter(s => s.kind === "hls" || s.kind === "dash").reverse();
+  // A master playlist lists every quality; the others (one quality, or audio only) come after it.
+  const master = s => (/master|playlist\.m3u8|manifest/i.test(s.url) ? 1 : 0);
+  const manifests = all.filter(s => s.kind === "hls" || s.kind === "dash").reverse().sort((a, b) => master(b) - master(a));
   if (manifests.length) return manifests.slice(0, 8);
   const files = all.filter(s => s.kind === "video" ? (!s.size || s.size >= 3000000) : true);
   const rank = s => (s.kind === "video" ? 1e15 : 0) + s.size;
