@@ -642,7 +642,11 @@ class MenuDialogFragment : BottomSheetDialogFragment() {
                                 },
                                 onMediaDownloadClick = { kind ->
                                     browserStore.state.selectedTab?.content?.url?.let {
-                                        MediaDownloads.get(requireContext()).enqueue(org.mozilla.fenix.mediadl.PlaylistBridge.downloadUrl(it), kind)
+                                        val chain = org.mozilla.fenix.mediadl.PlaylistBridge.downloadChain(it)
+                                        MediaDownloads.get(requireContext()).enqueue(
+                                            chain.first(), kind, alternatives = chain.drop(1),
+                                            name = org.mozilla.fenix.mediadl.PlaylistBridge.nameFor(it, chain.first()),
+                                        )
                                     }
                                     dismiss()
                                 },

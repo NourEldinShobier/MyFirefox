@@ -88,9 +88,12 @@ class MediaInfo(
 
 /** [format] overrides the yt-dlp format selector (set by the quality sheet); [tag] replaces the kind's label in the UI. */
 class DownloadJob(
-    val id: String, val url: String, val site: String, val kind: Kind,
+    val id: String, var url: String, val site: String, val kind: Kind,
     val format: String? = null, val tag: String? = null,
 ) {
+    /** File name to use instead of yt-dlp's title, and the addresses to try next when this one is refused. */
+    var name: String? = null
+    var alternatives: List<String> = emptyList()
     val kindLabel get() = tag ?: kind.label
     var title = ""
     var status = Status.QUEUED
@@ -129,10 +132,11 @@ class MediaDownloads private constructor(private val app: Context) {
 
     fun enqueue(
         url: String, kind: Kind, site: String = siteOf(url), quiet: Boolean = false,
-        format: String? = null, tag: String? = null, attempt: Int = 0,
+        format: String? = null, tag: String? = null, attempt: Int = 0, name: String? = null, alternatives: List<String> = emptyList(),
     ) {
         if (jobs.any { it.url == url && it.kind == kind && it.format == format && it.active }) { if (!quiet) toast("Already downloading this"); return }
         val job = DownloadJob("d${System.currentTimeMillis()}_${counter++}", url, site, kind, format, tag)
+        job.name = name; job.alternatives = alternatives
         job.attempt = if (attempt == 0 && kind.video && site.startsWith("YouTube") && useLogin) 1 else attempt
         jobs.add(0, job)
         if (!quiet) toast("Download started (${job.site}, ${job.kindLabel})")
@@ -408,7 +412,7 @@ class MediaDownloads private constructor(private val app: Context) {
         r
             .addOption("--retries", "3").addOption("--socket-timeout", "20")
             .addOption("--sleep-requests", if (job.site == "Instagram") "3" else "1.5")
-            .addOption("-o", File(dir, "%(title).150B.%(ext)s").absolutePath)
+            .addOption("-o", File(dir, job.name?.let { "$it.%(ext)s" } ?: "%(title).150B.%(ext)s").absolutePath)
         when (job.kind) {
             // Opus is the best stream per MB on YouTube; -x with the default "best" format only remuxes it to .opus (or .m4a for AAC).
             Kind.AUDIO -> r.addOption("-f", "ba[acodec=opus]/ba/b").addOption("-x")
@@ -472,6 +476,10 @@ class MediaDownloads private constructor(private val app: Context) {
             job.attempt = 1
             job.firstError = message
             main.postDelayed({ if (job.status == Status.RUNNING) start(job) }, 5000L)
+        } else if (job.alternatives.isNotEmpty()) {
+            // A found stream was refused (for example a one-time master playlist): try the next address.
+            job.url = job.alternatives.first(); job.alternatives = job.alternatives.drop(1)
+            start(job)
         } else {
             dir.deleteRecursively()
             fail(job, message)

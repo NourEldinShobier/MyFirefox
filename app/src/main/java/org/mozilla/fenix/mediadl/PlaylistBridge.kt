@@ -63,8 +63,17 @@ object PlaylistBridge {
     /** Streams found for a page on sites yt-dlp has no extractor for; YouTube, Instagram and SoundCloud use their page. */
     fun streamsFor(page: String): List<Stream> = if (siteOf(page) == "Other") streams[page].orEmpty() else emptyList()
 
-    /** What a one-tap download should fetch: the best found stream, else the player frame, else the page. */
-    fun downloadUrl(page: String): String = streamsFor(page).firstOrNull()?.url ?: playerUrl(page)
+    /** What a one-tap download tries, in order: the found streams (a protected one may answer 403), then the player frame or page. */
+    fun downloadChain(page: String): List<String> = (streamsFor(page).map { it.url } + playerUrl(page)).distinct()
+
+    private var store: BrowserStore? = null
+
+    /** The tab's title as a file name when the download is a found stream or iframe (yt-dlp would call it "master"). */
+    fun nameFor(page: String, url: String): String? {
+        if (url == page) return null
+        val title = store?.state?.tabs?.firstOrNull { it.content.url == page }?.content?.title ?: return null
+        return title.replace(Regex("""[\\/:*?"<>|%\r\n]"""), " ").trim().take(120).takeIf { it.isNotBlank() }
+    }
 
     /** Gives yt-dlp the headers the browser used, since embed and CDN hosts often refuse requests without them. */
     fun applyHeaders(r: com.farimarwat.commons.YoutubeDLRequest, url: String) {
@@ -74,7 +83,6 @@ object PlaylistBridge {
         userAgents[url]?.let { r.addOption("--user-agent", it) }
         // Origin, cookies and other headers the browser sent with this very request.
         sent?.forEach { (k, v) -> if (!k.equals("Referer", true) && v.isNotBlank()) r.addOption("--add-header", "$k:$v") }
-        Log.i("PlaylistBridge", "[DEBUG-h1] headers sent with yt-dlp: ${sent?.keys} ua=${userAgents[url] != null}")
     }
 
     private fun rememberStreams(page: String, arr: org.json.JSONArray?) {
@@ -104,6 +112,7 @@ object PlaylistBridge {
     /** Installs the extension once and keeps every selected tab connected to it. */
     fun start(engine: Engine, store: BrowserStore, host: Activity) {
         activity = WeakReference(host)
+        this.store = store
         if (started) return
         started = true
         controller.install(engine, onSuccess = {

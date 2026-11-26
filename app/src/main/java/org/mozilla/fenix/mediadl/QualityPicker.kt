@@ -43,7 +43,8 @@ import mozilla.components.ui.icons.R as iconsR
 
 /** What the quality sheet shows: set by whoever opens it. */
 object QualitySession {
-    class Data(val pageUrl: String, val info: MediaInfo)
+    /** [page] is the tab's address; [pageUrl] is what yt-dlp reads (the page, its player frame or a found stream). */
+    class Data(val page: String, val pageUrl: String, val info: MediaInfo)
 
     @Volatile var current: Data? = null
 }
@@ -61,28 +62,28 @@ fun pickQuality(activity: Activity, page: String) {
                 (if (s.size > 0) "$kind · ${sizeText(s.size)}" else kind) + "\n" + name
             }.toTypedArray()
             android.app.AlertDialog.Builder(activity).setTitle("Which video?")
-                .setItems(labels) { _, i -> readQualities(activity, (listOf(found[i].url) + found.map { it.url } + fallback).distinct()) }
+                .setItems(labels) { _, i -> readQualities(activity, page, (listOf(found[i].url) + found.map { it.url } + fallback).distinct()) }
                 .setNegativeButton("Cancel", null).show()
         }
         // Playlists are tried in order: a one-time or protected master playlist (HTTP 403) falls through to the next one.
-        else -> readQualities(activity, (found.map { it.url } + fallback).distinct())
+        else -> readQualities(activity, page, (found.map { it.url } + fallback).distinct())
     }
 }
 
 /** Reads the qualities of the first address that works, trying the list in order. */
-private fun readQualities(activity: Activity, urls: List<String>) {
+private fun readQualities(activity: Activity, page: String, urls: List<String>) {
     val pageUrl = urls.first()
     MediaDownloads.get(activity).loadFormats(
         pageUrl,
         onDone = { info ->
             if (!activity.isFinishing && !activity.isDestroyed) {
-                QualitySession.current = QualitySession.Data(pageUrl, info)
+                QualitySession.current = QualitySession.Data(page, pageUrl, info)
                 activity.startActivity(Intent(activity, QualityActivity::class.java))
             }
         },
         onFail = {
             Log.w("QualityPicker", "format read failed: $it")
-            if (urls.size > 1) readQualities(activity, urls.drop(1))
+            if (urls.size > 1) readQualities(activity, page, urls.drop(1))
             else Toast.makeText(activity, "Could not read the qualities: $it", Toast.LENGTH_LONG).show()
         },
     )
@@ -124,7 +125,10 @@ private fun QualityScreen(data: QualitySession.Data, onClose: () -> Unit) {
     }
 
     fun pick(o: QualityOption) {
-        MediaDownloads.get(context).enqueue(data.pageUrl, o.kind, format = o.format, tag = o.label.substringBefore(" ("), attempt = info.attempt)
+        MediaDownloads.get(context).enqueue(
+            data.pageUrl, o.kind, format = o.format, tag = o.label.substringBefore(" ("), attempt = info.attempt,
+            name = PlaylistBridge.nameFor(data.page, data.pageUrl),
+        )
         onClose()
     }
 
